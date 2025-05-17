@@ -7,18 +7,11 @@ from app.extensions import socketio
 
 app = create_app()
 
-# Define allowed origins - add your Vercel frontend URL here
-allowed_origins = [
-    "http://localhost:3000",  # Local development
-    "http://localhost:5173",  # Vite default port
-    "https://bracucircle-cr23eukxj-mabia-ferdous-projects.vercel.app/"  # Replace with your actual Vercel domain
-]
-
-# Configure CORS with specific origins
-CORS(app, resources={r"/*": {"origins": allowed_origins}})
+# Allow all origins for now to ensure frontend can connect
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 # Initialize the app with the Socket.IO instance
-socketio.init_app(app, cors_allowed_origins=allowed_origins)
+socketio.init_app(app, cors_allowed_origins="*")
 
 # Initialize socket events
 init_socket_events(socketio)
