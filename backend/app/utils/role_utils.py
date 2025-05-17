@@ -1,6 +1,6 @@
-from flask import jsonify, request
+from flask import jsonify, request, current_app
 from functools import wraps
-from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
+from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request, get_jwt
 
 def admin_required(f):
     """
@@ -12,21 +12,15 @@ def admin_required(f):
         try:
             verify_jwt_in_request()
             
-            # Get the JWT claims
-            from flask_jwt_extended import decode_token
+            # Get the JWT claims directly from the get_jwt function
+            claims = get_jwt()
             
-            auth_header = request.headers.get('Authorization')
-            if not auth_header or not auth_header.startswith('Bearer '):
-                return jsonify({'error': 'Missing or invalid token'}), 401
-            
-            token = auth_header.split(' ')[1]
-            decoded = decode_token(token)
-            
-            # Check if it's an admin token
-            if decoded.get('role') != 'admin':
-                return jsonify({'error': 'Admin access required'}), 403
+            # Check if it's an admin token by looking at the role claim
+            if claims.get('role') != 'admin':
+                return jsonify({'error': 'Admin privileges required'}), 403
                 
             return f(*args, **kwargs)
         except Exception as e:
-            return jsonify({'error': str(e)}), 401
+            current_app.logger.error(f"Admin authorization error: {str(e)}")
+            return jsonify({'error': 'Authentication error. Please log in again.'}), 401
     return decorated_function

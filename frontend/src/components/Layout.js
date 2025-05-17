@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Outlet, Link, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { 
   AppBar, 
   Box, 
@@ -23,24 +23,73 @@ import MenuIcon from '@mui/icons-material/Menu';
 import HomeIcon from '@mui/icons-material/Home';
 import StoreIcon from '@mui/icons-material/Store';
 import HelpIcon from '@mui/icons-material/Help';
-import DirectionsBusIcon from '@mui/icons-material/DirectionsBus';
+import DirectionsCarIcon from '@mui/icons-material/DirectionsCar';
 import LogoutIcon from '@mui/icons-material/Logout';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
+import axios from 'axios';
 
 // Import components
-import AnnouncementBanner from './AnnouncementBanner';
+import ScrollingAnnouncement from './ScrollingAnnouncement';
 
 // Import CSS styles
 import '../styles/components/Layout.css';
 
 const Layout = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [anchorElUser, setAnchorElUser] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [announcements, setAnnouncements] = useState([]);
+  const [loading, setLoading] = useState(false);
 
   // Check if user is logged in
   const isLoggedIn = localStorage.getItem('token') !== null;
   const user = JSON.parse(localStorage.getItem('user') || '{}');
+  
+  // Get current page from URL path
+  const getCurrentPage = () => {
+    const path = location.pathname;
+    if (path.includes('marketplace')) return 'marketplace';
+    if (path.includes('lost-found')) return 'lost_found';
+    if (path.includes('ride')) return 'ride_share';
+    return 'home';
+  };
+  
+  // Fetch announcements based on current page
+  useEffect(() => {
+    const fetchAnnouncements = async () => {
+      try {
+        setLoading(true);
+        const currentPage = getCurrentPage();
+        
+        // Use the notification service instead of direct axios call
+        // to leverage the improved caching and error handling
+        const data = await axios.get(`/api/announcements/page/${currentPage}`, {
+          headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+        });
+        
+        // Only set announcements if we have valid data
+        if (Array.isArray(data.data)) {
+          setAnnouncements(data.data);
+        } else {
+          setAnnouncements([]);
+        }
+      } catch (error) {
+        console.error('Error fetching announcements:', error);
+        setAnnouncements([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchAnnouncements();
+    
+    // Set up a polling interval to refresh announcements periodically
+    const intervalId = setInterval(fetchAnnouncements, 30000); // Refresh every 30 seconds
+    
+    // Clean up interval on component unmount
+    return () => clearInterval(intervalId);
+  }, [location.pathname]); // Re-fetch when route changes
 
   const handleOpenUserMenu = (event) => {
     setAnchorElUser(event.currentTarget);
@@ -77,7 +126,7 @@ const Layout = () => {
         </ListItem>
         <ListItem component={Link} to="/ride-booking" sx={{ color: 'inherit', textDecoration: 'none' }}>
           <ListItemIcon>
-            <DirectionsBusIcon />
+            <DirectionsCarIcon />
           </ListItemIcon>
           <ListItemText primary="Ride Booking" />
         </ListItem>
@@ -292,6 +341,18 @@ const Layout = () => {
         {drawer}
       </Drawer>
       
+      {/* Display announcements for the current page */}
+      {announcements && announcements.length > 0 && (
+        <Box sx={{ width: '100%', mt: 2 }}>
+          <Container maxWidth="lg">
+            <ScrollingAnnouncement 
+              announcements={announcements} 
+              page={getCurrentPage()} 
+            />
+          </Container>
+        </Box>
+      )}
+      
       <Container 
         maxWidth="lg" 
         sx={{ 
@@ -301,9 +362,6 @@ const Layout = () => {
           zIndex: 1
         }}
       >
-        {/* Display announcements for logged-in users */}
-        {isLoggedIn && <AnnouncementBanner />}
-        
         <Outlet />
       </Container>
     </>

@@ -14,6 +14,8 @@ import {
   Button, 
   Card, 
   CardContent,
+  CardActions,
+  Chip,
   CircularProgress,
   Alert,
   Drawer,
@@ -31,6 +33,8 @@ import {
 import { useNavigate } from 'react-router-dom';
 import GroupIcon from '@mui/icons-material/Group';
 import PendingActionsIcon from '@mui/icons-material/PendingActions';
+import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
+import PeopleIcon from '@mui/icons-material/People';
 import DoneAllIcon from '@mui/icons-material/DoneAll';
 import MeetingRoomIcon from '@mui/icons-material/MeetingRoom';
 import StoreIcon from '@mui/icons-material/Store';
@@ -39,15 +43,22 @@ import DashboardIcon from '@mui/icons-material/Dashboard';
 import MenuIcon from '@mui/icons-material/Menu';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import CloseIcon from '@mui/icons-material/Close';
+import EmailIcon from '@mui/icons-material/Email';
+import BadgeIcon from '@mui/icons-material/Badge';
+import SchoolIcon from '@mui/icons-material/School';
+import VisibilityIcon from '@mui/icons-material/Visibility';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import axios from 'axios';
+import { setupAdminAuth, adminApiRequest } from '../utils/adminAuth';
 import '../AppBackgrounds.css';
 import MarketplaceItemDetailsDrawer from '../components/MarketplaceItemDetailsDrawer';
 import RideShareList from '../components/RideShareList';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
-import DirectionsBusIcon from '@mui/icons-material/DirectionsBus';
-import NotificationForm from '../components/NotificationForm';
+import DirectionsCarIcon from '@mui/icons-material/DirectionsCar';
+import HelpIcon from '@mui/icons-material/Help';
+import AnnouncementForm from '../components/AnnouncementForm';
+import ScrollingAnnouncement from '../components/ScrollingAnnouncement';
 
 // Drawer width for the sidebar
 const drawerWidth = 240;
@@ -71,21 +82,47 @@ async function axiosGetWithRetry(url, config = {}, retries = 4, delay = 500) {
 }
 
 const AdminDashboard = () => {
-  const [showNotificationForm, setShowNotificationForm] = useState(false);
+  const [showAnnouncementForm, setShowAnnouncementForm] = useState(false);
+  
+  // Function to handle announcement click with proper authentication
+  const handleAnnouncementClick = () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setSnackbar({
+        open: true,
+        message: 'You must be logged in to manage announcements',
+        severity: 'error'
+      });
+      return;
+    }
+    
+    // For admin dashboard, we assume the user is an admin if they can access this page
+    // The backend will verify admin privileges when making API calls
+    setShowAnnouncementForm(true);
+  };
+
   const [editUserOpen, setEditUserOpen] = useState(false);
   const [editUserData, setEditUserData] = useState(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [userToDelete, setUserToDelete] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [refreshDebounce, setRefreshDebounce] = useState(false);
+  
+  // Lost & Found state
+  const [lostFoundActionLoading, setLostFoundActionLoading] = useState('');
   // Cache timestamps
   const [lastFetched, setLastFetched] = useState({
     users: 0,
     pending: 0,
     stats: 0,
     marketplace: 0,
-    rideshare: 0
+    rideshare: 0,
+    lostfound: 0,
+    announcements: 0
   });
+  
+  // State for announcements
+  const [announcements, setAnnouncements] = useState([]);
   // Retry state for 429 errors
   const [retryInfo, setRetryInfo] = useState({ type: '', show: false });
   const CACHE_WINDOW = 30 * 1000; // 30 seconds
@@ -211,36 +248,339 @@ const AdminDashboard = () => {
 
   const navigate = useNavigate();
   const [activeView, setActiveView] = useState('dashboard');
+  // State for marketplace items
   const [marketplaceItems, setMarketplaceItems] = useState([]);
+  const [marketplaceItemDetails, setMarketplaceItemDetails] = useState({ open: false, item: null });
+  
+  // State for ride share items
   const [rideShareItems, setRideShareItems] = useState([]);
-  const [editRideShareData, setEditRideShareData] = useState(null);
   const [editRideShareOpen, setEditRideShareOpen] = useState(false);
+  const [editRideShareData, setEditRideShareData] = useState(null);
   const [deleteRideShareConfirmOpen, setDeleteRideShareConfirmOpen] = useState(false);
   const [rideShareToDelete, setRideShareToDelete] = useState(null);
-
-  // Fetch ride share data
-  const fetchRideShareData = async (force = false) => {
-    const now = Date.now();
-    if (!force && now - lastFetched.rideshare < CACHE_WINDOW) return;
-    if (refreshDebounce) return;
-    setRefreshDebounce(true);
+  
+  // State for bus routes
+  const [busRoutes, setBusRoutes] = useState([]);
+  const [editBusRouteOpen, setEditBusRouteOpen] = useState(false);
+  const [editBusRouteData, setEditBusRouteData] = useState(null);
+  const [deleteBusRouteConfirmOpen, setDeleteBusRouteConfirmOpen] = useState(false);
+  const [busRouteToDelete, setBusRouteToDelete] = useState(null);
+  
+  // State for Lost & Found management
+  const [lostFoundItems, setLostFoundItems] = useState([]);
+  const [editLostFoundOpen, setEditLostFoundOpen] = useState(false);
+  const [editLostFoundData, setEditLostFoundData] = useState(null);
+  const [deleteLostFoundOpen, setDeleteLostFoundOpen] = useState(false);
+  const [lostFoundToDelete, setLostFoundToDelete] = useState(null);
+  
+  // Stats for dashboard
+  const [stats, setStats] = useState({
+    users: { total: 0, verified: 0, pending: 0 },
+    marketplace: { total_items: 0 },
+    rideshare: { total: 0, active: 0, booked: 0, available: 0 },
+    bus_routes: { total: 0, active: 0 },
+    lost_found: { total: 0, lost: 0, found: 0 },
+    recent_activities: { items: [], rideshare: [], bus_routes: [], lost_found: [] }
+  });
+  
+  // Safe access to stats to prevent undefined errors
+  const safeStats = stats || {
+    users: { total: 0, verified: 0, pending: 0 },
+    marketplace: { total_items: 0 },
+    rideshare: { total: 0, active: 0, booked: 0, available: 0 },
+    bus_routes: { total: 0, active: 0 },
+    lost_found: { total: 0, lost: 0, found: 0 },
+    recent_activities: { items: [], rideshare: [], bus_routes: [], lost_found: [] }
+  };
+  
+  // Fetch announcements data
+  const fetchAnnouncements = async (force = false) => {
     try {
+      // Check if we need to fetch (cache window)
+      const now = Date.now();
+      if (!force && now - lastFetched.announcements < CACHE_WINDOW) {
+        return; // Use cached data
+      }
+      
+      setLoading(true);
+      const adminToken = localStorage.getItem('adminToken');
+      axios.defaults.headers.common['Authorization'] = `Bearer ${adminToken}`;
+      
+      // Using the notificationService to fetch all announcements
+      const response = await axios.get('/api/admin/announcements', {
+        headers: {
+          'Authorization': `Bearer ${adminToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      setAnnouncements(response.data || []);
+      
+      // Update last fetched timestamp
+      setLastFetched(prev => ({ ...prev, announcements: now }));
+    } catch (error) {
+      console.error('Error fetching announcements:', error);
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.error || 'Failed to fetch announcements',
+        severity: 'error'
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Fetch lost & found data
+  const fetchLostFoundData = async (force = false) => {
+    try {
+      // Check if we need to fetch (cache window)
+      const now = Date.now();
+      if (!force && now - lastFetched.lostfound < CACHE_WINDOW) {
+        return; // Use cached data
+      }
+      
       setLoading(true);
       const adminToken = localStorage.getItem('adminToken');
       if (!adminToken) throw new Error('Admin authentication required');
-      axios.defaults.headers.common['Authorization'] = `Bearer ${adminToken}`;
-      const timestamp = new Date().getTime();
-      // Use the correct API endpoint for admin to get all ride shares
-      const response = await axiosGetWithRetry(`/api/ride/share/admin/all?_=${timestamp}`);
       
-      // Process the data to include user information
-      const ridesWithUserInfo = await Promise.all(response.data.map(async (ride) => {
+      axios.defaults.headers.common['Authorization'] = `Bearer ${adminToken}`;
+      
+      // Fetch both lost items and found items separately to ensure we get all data
+      const [lostResponse, foundResponse] = await Promise.all([
+        axiosGetWithRetry('/api/admin/lost-items'),
+        axiosGetWithRetry('/api/admin/found-items')
+      ]);
+      
+      console.log('Lost items response:', lostResponse.data);
+      console.log('Found items response:', foundResponse.data);
+      
+      // Combine and process the items
+      const lostItems = (lostResponse.data?.items || []).map(item => ({
+        ...item,
+        type: 'lost',
+        title: item.title || 'Untitled Lost Item',
+        description: item.description || 'No description provided',
+        category: item.category || 'Other',
+        location: item.location || 'Unknown',
+        status: item.status || 'active',
+        formatted_date: item.date ? new Date(item.date).toLocaleDateString() : 'Unknown date',
+        created_at_formatted: item.created_at ? new Date(item.created_at).toLocaleDateString() : 'Unknown'
+      }));
+      
+      const foundItems = (foundResponse.data?.items || []).map(item => ({
+        ...item,
+        type: 'found',
+        title: item.title || 'Untitled Found Item',
+        description: item.description || 'No description provided',
+        category: item.category || 'Other',
+        location: item.location || 'Unknown',
+        status: item.status || 'active',
+        formatted_date: item.date ? new Date(item.date).toLocaleDateString() : 'Unknown date',
+        created_at_formatted: item.created_at ? new Date(item.created_at).toLocaleDateString() : 'Unknown'
+      }));
+      
+      // Combine all items
+      const allItems = [...lostItems, ...foundItems];
+      console.log('Combined lost & found items:', allItems);
+      
+      setLostFoundItems(allItems);
+      
+      // Calculate stats
+      const lostFoundStats = {
+        total: allItems.length,
+        lost: lostItems.length,
+        found: foundItems.length,
+        resolved: allItems.filter(item => item.status === 'resolved').length
+      };
+      
+      console.log('Lost & found stats:', lostFoundStats);
+      
+      // Update the stats in the state
+      setStats(prev => ({
+        ...prev,
+        lostfound: lostFoundStats
+      }));
+      
+      // Update last fetched timestamp
+      setLastFetched(prev => ({ ...prev, lostfound: now }));
+    } catch (error) {
+      console.error('Error fetching lost & found data:', error);
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.error || 'Failed to fetch lost & found data',
+        severity: 'error'
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Handlers for lost & found edit/delete
+  const handleEditLostFound = (item) => {
+    setEditLostFoundData(item);
+    setEditLostFoundOpen(true);
+  };
+  
+  const handleEditLostFoundClose = () => {
+    setEditLostFoundOpen(false);
+    setEditLostFoundData(null);
+  };
+  
+  const handleDeleteLostFound = (item) => {
+    setLostFoundToDelete(item);
+    setDeleteLostFoundOpen(true);
+  };
+  
+  const handleDeleteLostFoundClose = () => {
+    setDeleteLostFoundOpen(false);
+    setLostFoundToDelete(null);
+  };
+  
+  const handleDeleteLostFoundConfirm = async () => {
+    if (!lostFoundToDelete) return;
+    
+    setLostFoundActionLoading(lostFoundToDelete._id);
+    try {
+      const adminToken = localStorage.getItem('adminToken');
+      if (!adminToken) throw new Error('Admin authentication required');
+      
+      axios.defaults.headers.common['Authorization'] = `Bearer ${adminToken}`;
+      
+      await axios.delete(`/api/admin/lost-found/${lostFoundToDelete._id}`);
+      
+      // Update UI immediately
+      setLostFoundItems(prevItems => prevItems.filter(item => item._id !== lostFoundToDelete._id));
+      
+      // Update stats
+      setStats(prevStats => {
+        const updatedStats = { ...prevStats };
+        if (updatedStats.lostfound) {
+          updatedStats.lostfound.total = Math.max(0, (updatedStats.lostfound.total || 0) - 1);
+          
+          if (lostFoundToDelete.type === 'lost') {
+            updatedStats.lostfound.lost = Math.max(0, (updatedStats.lostfound.lost || 0) - 1);
+          } else if (lostFoundToDelete.type === 'found') {
+            updatedStats.lostfound.found = Math.max(0, (updatedStats.lostfound.found || 0) - 1);
+          }
+          
+          if (lostFoundToDelete.status === 'resolved') {
+            updatedStats.lostfound.resolved = Math.max(0, (updatedStats.lostfound.resolved || 0) - 1);
+          }
+        }
+        return updatedStats;
+      });
+      
+      setSnackbar({
+        open: true,
+        message: `${lostFoundToDelete.type === 'lost' ? 'Lost' : 'Found'} item deleted successfully`,
+        severity: 'success'
+      });
+      
+      handleDeleteLostFoundClose();
+    } catch (error) {
+      console.error('Error deleting lost & found item:', error);
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.error || 'Failed to delete item',
+        severity: 'error'
+      });
+    } finally {
+      setLostFoundActionLoading('');
+    }
+  };
+  
+  const handleEditLostFoundSave = async () => {
+    if (!editLostFoundData) return;
+    
+    setLostFoundActionLoading(editLostFoundData._id);
+    try {
+      const adminToken = localStorage.getItem('adminToken');
+      if (!adminToken) throw new Error('Admin authentication required');
+      
+      axios.defaults.headers.common['Authorization'] = `Bearer ${adminToken}`;
+      
+      // Prepare data for update
+      const updateData = {
+        title: editLostFoundData.title,
+        description: editLostFoundData.description,
+        category: editLostFoundData.category,
+        location: editLostFoundData.location,
+        status: editLostFoundData.status
+      };
+      
+      await axios.put(`/api/admin/lost-found/${editLostFoundData._id}`, updateData);
+      
+      // Update UI with the updated item
+      setLostFoundItems(prevItems => 
+        prevItems.map(item => 
+          item._id === editLostFoundData._id ? 
+            { 
+              ...item, 
+              ...updateData,
+              // Add formatted fields for display
+              formatted_date: item.date ? new Date(item.date).toLocaleDateString() : 'Unknown date',
+              created_at_formatted: item.created_at ? new Date(item.created_at).toLocaleDateString() : 'Unknown'
+            } : item
+        )
+      );
+      
+      setSnackbar({
+        open: true,
+        message: `${editLostFoundData.type === 'lost' ? 'Lost' : 'Found'} item updated successfully`,
+        severity: 'success'
+      });
+      
+      handleEditLostFoundClose();
+    } catch (error) {
+      console.error('Error updating lost & found item:', error);
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.error || 'Failed to update item',
+        severity: 'error'
+      });
+    } finally {
+      setLostFoundActionLoading('');
+    }
+  };
+  
+  // Fetch ride share and bus routes data
+  const fetchRideShareData = async (force = false) => {
+    const now = Date.now();
+    
+    // Check if we should fetch new data based on cache window
+    if (!force && lastFetched.rideshare && now - lastFetched.rideshare < CACHE_WINDOW) return;
+    if (refreshDebounce) return;
+    
+    setRefreshDebounce(true);
+    try {
+      setLoading(true);
+      
+      // Set up admin authentication
+      setupAdminAuth();
+      const timestamp = new Date().getTime();
+      
+      // Use Promise.all to fetch both ride shares and bus routes in parallel
+      const [rideShareResponse, busRoutesResponse] = await Promise.all([
+        adminApiRequest(`/api/admin/rides?_=${timestamp}`),
+        adminApiRequest(`/api/admin/bus-routes?_=${timestamp}`)
+      ]);
+      
+      // Process the ride share data to include user information
+      const ridesWithUserInfo = await Promise.all((rideShareResponse.data || []).map(async (ride) => {
         try {
           // Get user details for each ride
           const userResponse = await axios.get(`/api/admin/user/${ride.user_id}`);
           return {
             ...ride,
-            user: userResponse.data
+            user: userResponse.data,
+            // Add additional fields for ride share management
+            creator_name: userResponse.data?.name || 'Unknown',
+            creator_email: userResponse.data?.email || 'No email',
+            // Format booking status for display
+            booking_status: ride.is_booked ? 'Booked' : 'Available',
+            // Format timestamps for display
+            formatted_date: new Date(ride.created_at).toLocaleDateString(),
+            formatted_time: new Date(ride.created_at).toLocaleTimeString()
           };
         } catch (error) {
           console.error(`Error fetching user info for ride ${ride._id}:`, error);
@@ -248,40 +588,37 @@ const AdminDashboard = () => {
         }
       }));
       
-      // Filter out any ride shares that are marked as deleted in local storage
-      const deletedRideShares = JSON.parse(localStorage.getItem('deletedRideShares') || '[]');
-      const ridesWithUserInfoFinal = (response.data || []).filter(ride => 
-        !deletedRideShares.includes(ride._id)
-      );
+      // Process bus routes data
+      const busRoutes = busRoutesResponse.data || [];
       
-      console.log('Filtered out', response.data.length - ridesWithUserInfoFinal.length, 'deleted ride shares');
-      setRideShareItems(ridesWithUserInfoFinal);
-      setLastFetched(prev => ({ ...(prev || {}), rideshare: Date.now() }));
+      // Set state with the fetched data
+      setRideShareItems(ridesWithUserInfo);
+      setBusRoutes(busRoutes);
+      setLastFetched(prev => ({ ...prev, rideshare: Date.now() }));
       
-      // Calculate ride share statistics
-      const activeRides = ridesWithUserInfoFinal.filter(ride => ride.status === 'active').length || 0;
-      const inactiveRides = ridesWithUserInfoFinal.filter(ride => ride.status !== 'active').length || 0;
-      const totalRides = ridesWithUserInfoFinal.length || 0;
+      // Update stats with the new ride share and bus routes data
+      const rideShareStats = {
+        total: ridesWithUserInfo.length || 0,
+        active: ridesWithUserInfo.filter(ride => ride.status === 'available').length || 0,
+        completed: ridesWithUserInfo.filter(ride => ride.status === 'completed').length || 0,
+        cancelled: ridesWithUserInfo.filter(ride => ride.status === 'cancelled').length || 0
+      };
       
-      console.log('Ride share stats:', { total_posts: totalRides, active: activeRides, inactive: inactiveRides });
+      console.log('Ride share stats:', rideShareStats);
       
-      // Update stats with the new ride share data
-      setStats(prev => {
-        // Handle case where prev is null by providing default values
-        const prevStats = prev || { recent_activities: {} };
-        return {
-          ...prevStats,
-          rideshare: {
-            total_posts: totalRides,
-            active: activeRides,
-            inactive: inactiveRides
-          },
-          recent_activities: {
-            ...prevStats.recent_activities,
-            rideshare: ridesWithUserInfo.slice(0, 5) || []
-          }
-        };
-      });
+      setStats(prev => ({
+        ...prev,
+        rideshare: rideShareStats,
+        bus_routes: {
+          total: busRoutes.length || 0,
+          active: busRoutes.filter(route => route.status === 'active').length || 0
+        },
+        recent_activities: {
+          ...prev.recent_activities,
+          rideshare: ridesWithUserInfo.slice(0, 5) || [],
+          bus_routes: busRoutes.slice(0, 5) || []
+        }
+      }));
     } catch (err) {
       console.error('Error fetching ride share posts:', err);
       let errorMsg = err.response?.data?.error || err.message;
@@ -334,34 +671,22 @@ const AdminDashboard = () => {
   const handleDeleteRideShareConfirm = async () => {
     if (!rideShareToDelete) return;
     setActionLoading(true);
-    
-    // Close the dialog immediately for better UX
-    setDeleteRideShareConfirmOpen(false);
-    
     try {
-      // Get the admin token
       const adminToken = localStorage.getItem('adminToken');
+      axios.defaults.headers.common['Authorization'] = `Bearer ${adminToken}`;
+      // Use the correct API endpoint for deleting ride shares
+      const response = await axios.delete(`/api/admin/rides/${rideShareToDelete._id}`);
       
-      if (!adminToken) {
-        throw new Error('Admin token not found. Please log in again.');
-      }
-      
-      // First attempt to delete from the backend
-      const response = await axios({
-        method: 'DELETE',
-        url: `/api/ride/share/${rideShareToDelete._id}`,
-        headers: {
-          'Authorization': `Bearer ${adminToken}`,
-          'Content-Type': 'application/json'
-        }
+      setSnackbar({
+        open: true,
+        message: response.data.message || 'Ride share post deleted successfully',
+        severity: 'success'
       });
       
-      console.log('Backend deletion successful:', response.data);
-      
-      // Only update the UI after successful backend deletion
+      // Update the UI immediately
       setRideShareItems(prev => prev.filter(item => item._id !== rideShareToDelete._id));
       
-      // Update stats after successful deletion
+      // Update stats
       setStats(prev => {
         const isActive = rideShareToDelete.status === 'active';
         return {
@@ -379,48 +704,19 @@ const AdminDashboard = () => {
         };
       });
       
-      // Also mark as deleted in local storage to ensure it stays deleted across page refreshes
-      const deletedRideShares = JSON.parse(localStorage.getItem('deletedRideShares') || '[]');
-      if (!deletedRideShares.includes(rideShareToDelete._id)) {
-        deletedRideShares.push(rideShareToDelete._id);
-        localStorage.setItem('deletedRideShares', JSON.stringify(deletedRideShares));
-      }
+      setDeleteRideShareConfirmOpen(false);
+      setRideShareToDelete(null);
       
-      // Show success message
-      setSnackbar({
-        open: true,
-        message: response.data.message || 'Ride share post deleted successfully',
-        severity: 'success'
-      });
-      
-      // Broadcast the deletion to other components using localStorage event
-      // This will notify the RideBooking page to refresh its data
-      const deleteEvent = {
-        type: 'RIDE_SHARE_DELETED',
-        rideId: rideShareToDelete._id,
-        timestamp: new Date().getTime()
-      };
-      localStorage.setItem('rideShareDeleteEvent', JSON.stringify(deleteEvent));
-      // Trigger a storage event for other tabs/components to detect
-      window.dispatchEvent(new Event('storage'));
-      
-      // Refresh all dashboard data to ensure consistency across the entire admin dashboard
-      fetchDashboardData(true);
-      fetchMarketplaceData(true);
-      fetchRideShareData(true);
-      
+      // Refresh data to ensure consistency
+      await fetchRideShareData(true);
     } catch (err) {
       console.error('Error deleting ride share:', err);
-      
-      // Show error message
       setSnackbar({
         open: true,
         message: err.response?.data?.error || err.message,
         severity: 'error'
       });
     } finally {
-      // Reset the state
-      setRideShareToDelete(null);
       setActionLoading(false);
     }
   };
@@ -434,7 +730,7 @@ const AdminDashboard = () => {
       axios.defaults.headers.common['Authorization'] = `Bearer ${adminToken}`;
       
       // Use the correct API endpoint for updating ride shares
-      const response = await axios.put(`/api/ride/share/${editRideShareData._id}`, editRideShareData);
+      const response = await axios.put(`/api/admin/rides/${editRideShareData._id}`, editRideShareData);
       
       setSnackbar({
         open: true,
@@ -478,26 +774,23 @@ const AdminDashboard = () => {
   };
 
   // Call fetchRideShareData when needed (e.g., on mount or when switching views)
-  useEffect(function() {
-    // Initial data fetch
+  useEffect(() => {
+    if (activeView === 'rideshare') fetchRideShareData();
+    if (activeView === 'marketplace') fetchMarketplaceData();
+    // Add similar logic for users, pending, and stats if needed
+  }, [activeView]);
+
+
+
+  useEffect(() => {
+    // Set initial data fetching
     fetchDashboardData();
-    fetchMarketplaceData();
-    fetchRideShareData(true); // Force fetch ride share data on mount
-    
-    // Set up interval to refresh data every 30 seconds
-    const interval = setInterval(() => {
-      fetchRideShareData(true);
-    }, 30000);
-    
-    // Clean up interval on unmount
-    return function() {
-      clearInterval(interval);
-    };
   }, []);
 
   useEffect(() => {
     if (activeView === 'rideshare') fetchRideShareData();
     if (activeView === 'marketplace') fetchMarketplaceData();
+    if (activeView === 'lostfound') fetchLostFoundData();
     // Add similar logic for users, pending, and stats if needed
   }, [activeView]);
 
@@ -523,22 +816,19 @@ const AdminDashboard = () => {
       const timestamp = new Date().getTime();
       const response = await axiosGetWithRetry(`/api/marketplace/items?_=${timestamp}`);
       setMarketplaceItems(response.data || []);
-      setLastFetched(prev => ({ ...(prev || {}), marketplace: Date.now() }));
+      setLastFetched(prev => ({ ...prev, marketplace: Date.now() }));
       
       // Update stats with the new marketplace data
-      setStats(prev => {
-        const prevStats = prev || { recent_activities: {} };
-        return {
-          ...prevStats,
-          marketplace: {
-            total_items: response.data?.length || 0
-          },
-          recent_activities: {
-            ...prevStats.recent_activities,
-            items: response.data?.slice(0, 5) || [] // Show only 5 most recent items
-          }
-        };
-      });
+      setStats(prev => ({
+        ...prev,
+        marketplace: {
+          total_items: response.data?.length || 0
+        },
+        recent_activities: {
+          ...prev.recent_activities,
+          items: response.data?.slice(0, 5) || [] // Show only 5 most recent items
+        }
+      }));
     } catch (err) {
       console.error('Error fetching marketplace items:', err);
       let errorMsg = err.response?.data?.error || err.message;
@@ -568,7 +858,6 @@ const AdminDashboard = () => {
   };
 
   // Handlers for Marketplace
-  const [marketplaceItemDetails, setMarketplaceItemDetails] = useState({ open: false, item: null });
   const handleViewMarketplaceItem = (item) => {
     setMarketplaceItemDetails({ open: true, item });
   };
@@ -586,6 +875,15 @@ const AdminDashboard = () => {
   const [marketplaceActionLoading, setMarketplaceActionLoading] = useState(''); // item id for which action is loading
 
   const handleEditMarketplaceItem = (item) => {
+    // Prevent editing sold items
+    if (item.sold) {
+      setSnackbar({
+        open: true,
+        message: 'Sold items cannot be edited, but they can be deleted',
+        severity: 'warning'
+      });
+      return;
+    }
     setEditMarketplaceData(item);
     setEditMarketplaceOpen(true);
   };
@@ -607,7 +905,9 @@ const AdminDashboard = () => {
       // Set the authorization header
       axios.defaults.headers.common['Authorization'] = `Bearer ${adminToken}`;
       
-      await axios.put(`/api/marketplace/items/${editMarketplaceData._id}`, editMarketplaceData);
+      // Use the admin-specific endpoint for marketplace item editing
+      // This endpoint bypasses regular user verification and allows admins to edit unsold items
+      await axios.put(`/api/admin/marketplace/items/${editMarketplaceData._id}`, editMarketplaceData);
       setEditMarketplaceOpen(false);
       setEditMarketplaceData(null);
       
@@ -665,7 +965,9 @@ const AdminDashboard = () => {
       // Set the authorization header
       axios.defaults.headers.common['Authorization'] = `Bearer ${adminToken}`;
       
-      await axios.delete(`/api/marketplace/items/${marketplaceToDelete._id}`);
+      // Use the admin-specific endpoint for marketplace item deletion
+      // This endpoint bypasses regular user verification and allows admins to delete any item
+      await axios.delete(`/api/admin/marketplace/items/${marketplaceToDelete._id}`);
       setDeleteMarketplaceOpen(false);
       setMarketplaceToDelete(null);
       
@@ -703,7 +1005,6 @@ const AdminDashboard = () => {
 
 
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState(null);
   const [pendingUsers, setPendingUsers] = useState([]);
   const [verifiedUsers, setVerifiedUsers] = useState([]);
   
@@ -716,6 +1017,13 @@ const AdminDashboard = () => {
     document.body.classList.add('admin-dashboard-page');
     return () => document.body.classList.remove('admin-dashboard-page');
   }, []);
+  
+  // Fetch announcements when component mounts
+  useEffect(() => {
+    if (tokenVerified) {
+      fetchAnnouncements();
+    }
+  }, [tokenVerified]);
 
   // Check if admin is logged in
   useEffect(() => {
@@ -791,6 +1099,13 @@ const AdminDashboard = () => {
   };
 
   const fetchDashboardData = async (showLoading = true) => {
+    // Check if we're on the admin dashboard page
+    const isAdminDashboard = window.location.pathname.includes('/admin');
+    if (!isAdminDashboard) {
+      console.log("Not on admin dashboard, skipping admin data fetch");
+      return;
+    }
+    
     if (refreshDebounce) return; // Prevent rapid refresh
     setRefreshDebounce(true);
     setTimeout(() => setRefreshDebounce(false), 2000); // 2s debounce
@@ -805,40 +1120,53 @@ const AdminDashboard = () => {
       const defaultStats = {
         users: { total: 0, verified: 0, pending: 0 },
         marketplace: { total_items: 0 },
-        rideshare: { total_posts: 0, active: 0, inactive: 0 },
-        recent_activities: { items: [], rideshare: [] }
+        recent_activities: { items: [] }
       };
       
       try {
         // Add timestamp to requests to prevent caching
         const timestamp = new Date().getTime();
         
+        // Set up admin authentication for all requests
+        setupAdminAuth();
+        
         // Get statistics with cache busting
         console.log("Fetching statistics...");
-        const statsResponse = await axiosGetWithRetry(`/api/admin/statistics?_=${timestamp}`);
+        const statsResponse = await adminApiRequest(`/api/admin/statistics?_=${timestamp}`);
         console.log("Statistics response:", statsResponse.data);
         
         // Get marketplace items count with cache busting
         const marketplaceResponse = await axiosGetWithRetry(`/api/marketplace/items?_=${timestamp}`);
         const marketplaceItemsCount = marketplaceResponse.data?.length || 0;
         
-        // Combine stats with real-time marketplace count
+        // Get ride share data with cache busting
+        console.log("Fetching ride share data...");
+        const rideShareResponse = await adminApiRequest(`/api/admin/rides?_=${timestamp}`);
+        console.log("Ride share response:", rideShareResponse.data);
+        const rideShareItems = rideShareResponse.data || [];
+        setRideShareItems(rideShareItems);
+        
+        // Combine stats with real-time marketplace count and ride share data
         const combinedStats = {
-          ...defaultStats,  // Start with default values
-          ...statsResponse.data,  // Override with API response data
-          users: {
-            ...defaultStats.users,  // Start with default user stats
-            ...(statsResponse.data?.users || {})  // Override with API response user data if available
-          },
+          ...statsResponse.data,
           marketplace: {
             total_items: marketplaceItemsCount
           },
+          rideshare: {
+            // Check if statsResponse.data.rideshare exists, if not use an empty object
+            ...(statsResponse.data.rideshare || {}),
+            total: rideShareItems.length || (statsResponse.data.rideshare?.total || 0),
+            active: rideShareItems.filter(ride => ride.status === 'available').length || (statsResponse.data.rideshare?.active || 0),
+            completed: rideShareItems.filter(ride => ride.status === 'completed').length || (statsResponse.data.rideshare?.completed || 0),
+            cancelled: rideShareItems.filter(ride => ride.status === 'cancelled').length || (statsResponse.data.rideshare?.cancelled || 0)
+          },
           recent_activities: {
             items: marketplaceResponse.data?.slice(0, 5) || [], // Show only 5 most recent items
-            rideshare: statsResponse.data?.recent_activities?.rideshare || []
+            rideshare: rideShareItems.slice(0, 5) || [] // Show only 5 most recent ride shares
           }
         };
         
+        console.log("Combined stats:", combinedStats);
         setStats(combinedStats);
         setMarketplaceItems(marketplaceResponse.data || []);
       } catch (statsErr) {
@@ -857,9 +1185,8 @@ const AdminDashboard = () => {
         // Add timestamp to prevent caching
         const pendingTimestamp = new Date().getTime();
         
-        // Get pending users
-        console.log("Fetching pending users...");
-        const pendingResponse = await axiosGetWithRetry(`/api/admin/pending-users?_=${pendingTimestamp}`);
+        // Get pending users with cache busting
+        const pendingResponse = await adminApiRequest(`/api/admin/pending-users?_=${pendingTimestamp}`);
         console.log("Pending users response:", pendingResponse.data);
         
         // Check if there are new pending users that weren't in our list before
@@ -878,16 +1205,13 @@ const AdminDashboard = () => {
         setPendingUsers(newPendingUsers);
         
         // Update stats with real pending count
-        setStats(prev => {
-          const prevStats = prev || { users: {} };
-          return {
-            ...prevStats,
-            users: {
-              ...(prevStats.users || {}),
-              pending: newPendingUsers.length || 0
-            }
-          };
-        });
+        setStats(prev => ({
+          ...prev,
+          users: {
+            ...prev.users,
+            pending: newPendingUsers.length || 0
+          }
+        }));
       } catch (pendingErr) {
         console.error("Error fetching pending users:", pendingErr);
         setPendingUsers([]);
@@ -902,22 +1226,8 @@ const AdminDashboard = () => {
         // Add timestamp to prevent caching
         const verifiedTimestamp = new Date().getTime();
         
-        // Get verified users with a timeout
-        console.log("Fetching verified users...");
-        
-        // Create a timeout promise that rejects after 10 seconds
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => {
-            reject(new Error('Request timed out after 10 seconds'));
-          }, 10000);
-        });
-        
-        // Race the actual request against the timeout
-        const verifiedResponse = await Promise.race([
-          axiosGetWithRetry(`/api/admin/verified-users?limit=50&_=${verifiedTimestamp}`),
-          timeoutPromise
-        ]);
-        
+        // Get verified users with cache busting
+        const verifiedResponse = await adminApiRequest(`/api/admin/verified-users?_=${verifiedTimestamp}`);
         console.log("Verified users response:", verifiedResponse.data);
         
         // Check if there are changes in the verified users list
@@ -935,43 +1245,25 @@ const AdminDashboard = () => {
           console.log('Detected deleted users that were still in UI:', deletedUsers);
         }
         
-        // Update the verified users list
         setVerifiedUsers(newVerifiedUsers);
         
         // Update stats with real verified count
-        setStats(prev => {
-          const prevStats = prev || { users: {} };
-          return {
-            ...prevStats,
-            users: {
-              ...(prevStats.users || {}),
-              verified: newVerifiedUsers.length || 0,
-              total: (newVerifiedUsers.length || 0) + ((prevStats.users?.pending || 0))
-            }
-          };
-        });
+        setStats(prev => ({
+          ...prev,
+          users: {
+            ...prev.users,
+            verified: newVerifiedUsers.length || 0,
+            total: (newVerifiedUsers.length || 0) + (prev.users.pending || 0)
+          }
+        }));
       } catch (verifiedErr) {
         console.error("Error fetching verified users:", verifiedErr);
-        
-        // Keep the existing verified users instead of setting to empty array
-        // This way, if the request fails, we still have some data to show
-        
-        // Only show the error message if we don't have any verified users yet
-        if (verifiedUsers.length === 0) {
-          setVerifiedUsers([]);
-          setSnackbar({
-            open: true,
-            message: `Failed to load verified users: ${verifiedErr.message}`,
-            severity: 'warning'
-          });
-        } else {
-          // Just show a warning toast but keep the existing data
-          setSnackbar({
-            open: true,
-            message: `Could not refresh verified users list. Using cached data.`,
-            severity: 'info'
-          });
-        }
+        setVerifiedUsers([]);
+        setSnackbar({
+          open: true,
+          message: `Failed to load verified users: ${verifiedErr.response?.data?.error || verifiedErr.message}`,
+          severity: 'error'
+        });
       }
       
       return true;
@@ -1168,338 +1460,368 @@ const AdminDashboard = () => {
     setUserDetailsOpen(false);
     setSelectedUser(null);
   };
-
-
-
-
-  // Safety check for stats
-  const safeStats = stats || {
-    users: { total: 0, verified: 0, pending: 0 },
-    marketplace: { total_items: 0 },
-    rideshare: { total_posts: 0, active: 0, inactive: 0 },
-    recent_activities: { items: [] }
-  };
-
-  // Sidebar drawer content
-  const drawerContent = (
-    <div>
-      <Toolbar>
-        <Typography variant="h6" noWrap sx={{ fontWeight: 600 }}>
-          Admin Panel
-        </Typography>
-      </Toolbar>
-      <Divider />
-      <List>
-        <ListItem 
-          button 
-          onClick={() => setActiveView('dashboard')}
-          selected={activeView === 'dashboard'}
-        >
-          <ListItemIcon>
-            <DashboardIcon color={activeView === 'dashboard' ? 'primary' : 'inherit'} />
-          </ListItemIcon>
-          <ListItemText primary="Dashboard" />
-        </ListItem>
-        <ListItem 
-          button 
-          onClick={() => setActiveView('pending')}
-          selected={activeView === 'pending'}
-        >
-          <ListItemIcon>
-            <PendingActionsIcon color={activeView === 'pending' ? 'warning' : 'inherit'} />
-          </ListItemIcon>
-          <ListItemText 
-            primary={
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                Pending Requests
-                {pendingUsers.length > 0 && (
-                  <Box 
-                    sx={{ 
-                      ml: 1, 
-                      bgcolor: '#ed6c02', 
-                      color: 'white', 
-                      borderRadius: '50%', 
-                      width: 24, 
-                      height: 24, 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      justifyContent: 'center', 
-                      fontSize: '0.75rem' 
-                    }}
-                  >
-                    {pendingUsers.length}
-                  </Box>
-                )}
-              </Box>
-            } 
-          />
-        </ListItem>
-        <ListItem 
-          button 
-          onClick={() => setActiveView('verified')}
-          selected={activeView === 'verified'}
-        >
-          <ListItemIcon>
-            <DoneAllIcon color={activeView === 'verified' ? 'success' : 'inherit'} />
-          </ListItemIcon>
-          <ListItemText primary="Verified Users" />
-        </ListItem>
-        <ListItem 
-          button 
-          onClick={() => setActiveView('marketplace')}
-          selected={activeView === 'marketplace'}
-        >
-          <ListItemIcon>
-            <StoreIcon color={activeView === 'marketplace' ? 'primary' : 'inherit'} />
-          </ListItemIcon>
-          <ListItemText primary="Manage Marketplace" />
-        </ListItem>
-        <ListItem 
-          button 
-          onClick={() => setActiveView('lostfound')}
-          selected={activeView === 'lostfound'}
-        >
-          <ListItemIcon>
-            <DoneAllIcon color={activeView === 'lostfound' ? 'primary' : 'inherit'} />
-          </ListItemIcon>
-          <ListItemText primary="Manage Lost & Found (Demo)" />
-        </ListItem>
-        <ListItem 
-          button 
-          onClick={() => setActiveView('rideshare')}
-          selected={activeView === 'rideshare'}
-        >
-          <ListItemIcon>
-            <MeetingRoomIcon color={activeView === 'rideshare' ? 'primary' : 'inherit'} />
-          </ListItemIcon>
-          <ListItemText primary="Manage Ride Share" />
-        </ListItem>
-        <ListItem 
-          button 
-          onClick={() => {
-            setActiveView('notifications');
-            setShowNotificationForm(true);
-          }}
-          selected={activeView === 'notifications'}
-        >
-          <ListItemIcon>
-            <NotificationsIcon color={activeView === 'notifications' ? 'primary' : 'inherit'} />
-          </ListItemIcon>
-          <ListItemText primary="Announcements" />
-        </ListItem>
-      </List>
-      <Divider />
-      <List>
-        <ListItem button onClick={handleLogout}>
-          <ListItemIcon>
-            <ExitToAppIcon color="error" />
-          </ListItemIcon>
-          <ListItemText primary="Logout" />
-        </ListItem>
-      </List>
-      <Divider />
-      <List>
-        <ListItem button onClick={() => handleStudentPageNavigation('/marketplace')}>
-          <ListItemIcon>
-            <StoreIcon />
-          </ListItemIcon>
-          <ListItemText primary="Visit Marketplace" />
-        </ListItem>
-        <ListItem button onClick={() => handleStudentPageNavigation('/lost-found')}>
-          <ListItemIcon>
-            <HelpOutlineIcon />
-          </ListItemIcon>
-          <ListItemText primary="Visit Lost & Found" />
-        </ListItem>
-        <ListItem button onClick={() => handleStudentPageNavigation('/ride-sharing')}>
-          <ListItemIcon>
-            <DirectionsBusIcon />
-          </ListItemIcon>
-          <ListItemText primary="Visit Ride Share" />
-        </ListItem>
-      </List>
-    </div>
+  
+  // Define the drawer content using React.createElement instead of JSX
+  const drawerContent = React.createElement(
+    'div',
+    null,
+    React.createElement(
+      Toolbar,
+      null,
+      React.createElement(
+        Typography,
+        { variant: 'h6', noWrap: true, component: 'div' },
+        'Admin Panel'
+      )
+    ),
+    React.createElement(Divider, null),
+    React.createElement(
+      List,
+      null,
+      React.createElement(
+        ListItem,
+        { 
+          button: true, 
+          onClick: () => setActiveView('dashboard'),
+          sx: { 
+            backgroundColor: activeView === 'dashboard' ? 'rgba(255, 255, 255, 0.2)' : 'transparent',
+            borderRadius: '8px',
+            margin: '4px 8px',
+            '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.1)' }
+          }
+        },
+        React.createElement(
+          ListItemIcon,
+          { sx: { color: '#90caf9' } },
+          React.createElement(DashboardIcon)
+        ),
+        React.createElement(ListItemText, { primary: 'Dashboard Overview', sx: { color: 'white' } })
+      ),
+      React.createElement(
+        ListItem,
+        { 
+          button: true, 
+          onClick: () => setActiveView('users'),
+          sx: { 
+            backgroundColor: activeView === 'users' ? 'rgba(255, 255, 255, 0.2)' : 'transparent',
+            borderRadius: '8px',
+            margin: '4px 8px',
+            '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.1)' }
+          }
+        },
+        React.createElement(
+          ListItemIcon,
+          { sx: { color: '#81c784' } },
+          React.createElement(DoneAllIcon)
+        ),
+        React.createElement(ListItemText, { primary: 'Verified Users', sx: { color: 'white' } })
+      ),
+      React.createElement(
+        ListItem,
+        { 
+          button: true, 
+          onClick: () => setActiveView('pending'),
+          sx: { 
+            backgroundColor: activeView === 'pending' ? 'rgba(255, 255, 255, 0.2)' : 'transparent',
+            borderRadius: '8px',
+            margin: '4px 8px',
+            '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.1)' }
+          }
+        },
+        React.createElement(
+          ListItemIcon,
+          { sx: { color: '#ffb74d' } },
+          React.createElement(PendingActionsIcon)
+        ),
+        React.createElement(ListItemText, { primary: 'Pending Users', sx: { color: 'white' } })
+      ),
+      React.createElement(
+        ListItem,
+        { 
+          button: true, 
+          onClick: () => setActiveView('marketplace'),
+          sx: { 
+            backgroundColor: activeView === 'marketplace' ? 'rgba(255, 255, 255, 0.2)' : 'transparent',
+            borderRadius: '8px',
+            margin: '4px 8px',
+            '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.1)' }
+          }
+        },
+        React.createElement(
+          ListItemIcon,
+          { sx: { color: '#ce93d8' } },
+          React.createElement(StoreIcon)
+        ),
+        React.createElement(ListItemText, { primary: 'Marketplace', sx: { color: 'white' } })
+      ),
+      React.createElement(
+        ListItem,
+        { 
+          button: true, 
+          onClick: () => setActiveView('rideshare'),
+          sx: { 
+            backgroundColor: activeView === 'rideshare' ? 'rgba(255, 255, 255, 0.2)' : 'transparent',
+            borderRadius: '8px',
+            margin: '4px 8px',
+            '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.1)' }
+          }
+        },
+        React.createElement(
+          ListItemIcon,
+          { sx: { color: '#80deea' } },
+          React.createElement(DirectionsCarIcon)
+        ),
+        React.createElement(ListItemText, { primary: 'Ride Share', sx: { color: 'white' } })
+      ),
+      React.createElement(
+        ListItem,
+        { 
+          button: true, 
+          onClick: () => setActiveView('lostfound'),
+          sx: { 
+            backgroundColor: activeView === 'lostfound' ? 'rgba(255, 255, 255, 0.2)' : 'transparent',
+            borderRadius: '8px',
+            margin: '4px 8px',
+            '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.1)' }
+          }
+        },
+        React.createElement(
+          ListItemIcon,
+          { sx: { color: '#ef9a9a' } },
+          React.createElement(HelpIcon)
+        ),
+        React.createElement(ListItemText, { primary: 'Lost & Found', sx: { color: 'white' } })
+      ),
+      React.createElement(
+        ListItem,
+        { 
+          button: true, 
+          onClick: () => {
+            setActiveView('announcements');
+            setShowAnnouncementForm(true);
+            // Fetch announcements when clicking on this menu item
+            fetchAnnouncements();
+          },
+          sx: { 
+            backgroundColor: activeView === 'announcements' ? 'rgba(255, 255, 255, 0.2)' : 'transparent',
+            borderRadius: '8px',
+            margin: '4px 8px',
+            '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.1)' }
+          }
+        },
+        React.createElement(
+          ListItemIcon,
+          { sx: { color: '#aed581' } },
+          React.createElement(NotificationsIcon)
+        ),
+        React.createElement(ListItemText, { primary: 'Announcements', sx: { color: 'white' } })
+      ),
+      React.createElement(
+        ListItem,
+        { 
+          button: true, 
+          onClick: handleLogout,
+          sx: { 
+            backgroundColor: 'rgba(255, 255, 255, 0.15)', 
+            marginTop: 2, 
+            borderRadius: '8px',
+            margin: '12px 8px 4px 8px',
+            '&:hover': { backgroundColor: 'rgba(244, 67, 54, 0.2)' }
+          }
+        },
+        React.createElement(
+          ListItemIcon,
+          { sx: { color: '#ef5350' } },
+          React.createElement(ExitToAppIcon)
+        ),
+        React.createElement(ListItemText, { primary: 'Logout', sx: { color: 'white', fontWeight: 'bold' } })
+      )
+    ),
+    React.createElement(Divider, null),
+    React.createElement(
+      List,
+      null,
+      React.createElement(
+        ListItem,
+        { button: true, onClick: () => handleStudentPageNavigation('/marketplace') },
+        React.createElement(
+          ListItemIcon,
+          null,
+          React.createElement(StoreIcon, null)
+        ),
+        React.createElement(ListItemText, { primary: 'Visit Marketplace' })
+      ),
+      React.createElement(
+        ListItem,
+        { button: true, onClick: () => handleStudentPageNavigation('/lost-found') },
+        React.createElement(
+          ListItemIcon,
+          null,
+          React.createElement(HelpOutlineIcon, null)
+        ),
+        React.createElement(ListItemText, { primary: 'Visit Lost & Found' })
+      ),
+      React.createElement(
+        ListItem,
+        { button: true, onClick: () => handleStudentPageNavigation('/ride-sharing') },
+        React.createElement(
+          ListItemIcon,
+          null,
+          React.createElement(DirectionsCarIcon, null)
+        ),
+        React.createElement(ListItemText, { primary: 'Visit Ride Share' })
+      )
+    )
   );
-
-  // Function to render ride share stats card using pure JavaScript
-  const renderRideShareCard = () => {
-    // Create a safe stats object with default values if not available
-    const safeStats = {
-      rideshare: { total_posts: 0, active: 0 },
-      ...(stats || {})
-    };
-    const rideShareCount = safeStats.rideshare?.total_posts || 0;
-    const activeRideShares = safeStats.rideshare?.active || 0;
-    
-    return React.createElement(Grid, { item: true, xs: 12, sm: 6, md: 4 }, 
-      React.createElement(Card, { sx: { backgroundColor: '#e8f5e9', borderRadius: '12px', height: '100%' } }, 
-        React.createElement(CardContent, null, [
-          React.createElement(Typography, { variant: "h6", color: "#2e7d32", key: 'title' }, "Ride Share Posts"),
-          React.createElement(Typography, { variant: "h3", sx: { my: 1, fontWeight: 600 }, key: 'count' }, rideShareCount),
-          React.createElement(Box, { sx: { display: 'flex', alignItems: 'center' }, key: 'info' }, [
-            React.createElement(DirectionsBusIcon, { fontSize: "small", color: "success", key: 'icon' }),
-            React.createElement(Typography, { variant: "body2", sx: { ml: 1 }, key: 'active-count' }, activeRideShares + " Active posts")
-          ])
-        ])
-      )
-    );
-  };
-  
-  // Function to render ride share activity list using pure JavaScript
-  const renderRideShareActivity = () => {
-    // Create a safe stats object with default values if not available
-    const safeStats = {
-      recent_activities: { rideshare: [] },
-      ...(stats || {})
-    };
-    const rideShares = safeStats.recent_activities?.rideshare || [];
-    
-    const listItems = rideShares.length > 0 
-      ? rideShares.map((ride, index) => {
-          return React.createElement(ListItem, { key: ride._id || index, divider: index < rideShares.length - 1 }, [
-            React.createElement(ListItemAvatar, { key: 'avatar' }, 
-              React.createElement(Avatar, { sx: { bgcolor: ride.status === 'active' ? 'success.light' : 'grey.400' } }, 
-                React.createElement(DirectionsBusIcon)
-              )
-            ),
-            React.createElement(ListItemText, { 
-              key: 'text',
-              primary: `${ride.from_location || 'Unknown'} to ${ride.to_location || 'Unknown'}`,
-              secondary: `${ride.date || 'No date'} | ${ride.time || 'No time'} | ${ride.seats_available || '0'} seats | Posted by: ${ride.user?.name || 'Unknown'}`
-            }),
-            React.createElement('div', { key: 'actions', style: { display: 'flex' } }, [
-              React.createElement(IconButton, { 
-                key: 'edit', 
-                edge: 'end', 
-                'aria-label': 'edit', 
-                onClick: () => handleEditRideShare(ride)
-              }, React.createElement(EditIcon, { fontSize: 'small' })),
-              React.createElement(IconButton, { 
-                key: 'delete', 
-                edge: 'end', 
-                'aria-label': 'delete', 
-                onClick: () => handleDeleteRideShare(ride)
-              }, React.createElement(DeleteIcon, { fontSize: 'small' }))
-            ])
-          ]);
-        })
-      : [React.createElement(ListItem, { key: 'no-rides' }, 
-          React.createElement(ListItemText, { primary: 'No recent ride share posts' })
-        )];
-    
-    return React.createElement('div', null, [
-      React.createElement(Typography, { variant: 'subtitle1', sx: { mt: 4, mb: 2 }, key: 'title' }, 'Latest Ride Share Posts'),
-      React.createElement(Box, { sx: { bgcolor: 'background.paper', borderRadius: 2, overflow: 'hidden' }, key: 'list-container' },
-        React.createElement(List, { dense: true }, listItems)
-      )
-    ]);
-  };
-  
-  // Ensure stats is never null or undefined
-  useEffect(() => {
-    if (!stats) {
-      setStats({
-        users: { total: 0, verified: 0, pending: 0 },
-        marketplace: { total_items: 0 },
-        rideshare: { total_posts: 0, active: 0, inactive: 0 },
-        recent_activities: { items: [], rideshare: [] }
-      });
-    }
-  }, [stats]);
 
   // Render different content based on active view
   const renderContent = () => {
-    // Create a safe stats object with default values if not available
-    const safeStats = {
-      users: { total: 0, verified: 0, pending: 0 },
-      marketplace: { total_items: 0 },
-      rideshare: { total_posts: 0, active: 0, inactive: 0 },
-      recent_activities: { items: [], rideshare: [] },
-      ...(stats || {})
-    };
-    if (activeView === 'notifications') {
+    if (activeView === 'announcements' && showAnnouncementForm) {
       return (
         <Box sx={{ mt: 2 }}>
           <Paper sx={{ p: 2, mb: 2 }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-              <Typography variant="h6">Create Announcement</Typography>
+              <Typography variant="h6">Manage Announcements</Typography>
               <IconButton onClick={() => {
-                setShowNotificationForm(false);
+                setShowAnnouncementForm(false);
                 setActiveView('dashboard');
               }}>
                 <CloseIcon />
               </IconButton>
             </Box>
-            <NotificationForm adminToken={localStorage.getItem('adminToken')} />
+            <AnnouncementForm onClose={() => {
+              setShowAnnouncementForm(false);
+              setActiveView('dashboard');
+            }} />
           </Paper>
         </Box>
       );
-    }
-
-    if (activeView === 'rideshare') {
-      return (
-        <Box sx={{ mt: 2 }}>
-          <Typography variant="h5" sx={{ mb: 3 }}>Manage Ride Share</Typography>
-          <RideShareList 
-            adminView
-            items={rideShareItems}
-            onEdit={handleEditRideShare}
-            onDelete={handleDeleteRideShare}
-          />
-          {/* Edit Ride Share Dialog */}
-          <Dialog open={editRideShareOpen} onClose={handleEditRideShareClose} maxWidth="sm" fullWidth>
-            <DialogTitle>Edit Ride Share Post</DialogTitle>
-            <DialogContent>
-              {/* Add form fields for editing ride share post here */}
-              <TextField
-                margin="normal"
-                label="Title"
-                fullWidth
-                value={editRideShareData?.title || ''}
-                onChange={e => setEditRideShareData({ ...editRideShareData, title: e.target.value })}
-              />
-              {/* Add other fields as needed */}
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={handleEditRideShareClose}>Cancel</Button>
-              <Button variant="contained" color="primary" onClick={async () => {
-                setActionLoading(true);
-                try {
-                  const adminToken = localStorage.getItem('adminToken');
-                  axios.defaults.headers.common['Authorization'] = `Bearer ${adminToken}`;
-                  const response = await axios.put(`/api/rideshare/edit/${editRideShareData._id}`, editRideShareData);
-                  setSnackbar({
-                    open: true,
-                    message: response.data.message || 'Ride share post updated',
-                    severity: 'success'
-                  });
-                  setEditRideShareOpen(false);
-                  setEditRideShareData(null);
-                  await fetchRideShareData();
-                } catch (err) {
-                  setSnackbar({
-                    open: true,
-                    message: err.response?.data?.error || err.message,
-                    severity: 'error'
-                  });
-                } finally {
-                  setActionLoading(false);
+    } else if (activeView === 'lostfound') {
+      // Import the LostFoundManagement component dynamically
+      const LostFoundManagement = React.lazy(() => import('./admin/LostFoundManagement'));
+      
+      return React.createElement(
+        Box, 
+        { sx: { mt: 2 } },
+        React.createElement(
+          Typography, 
+          { variant: 'h5', sx: { mb: 3 } },
+          'Manage Lost & Found'
+        ),
+        React.createElement(
+          React.Suspense,
+          { 
+            fallback: React.createElement(
+              Box, 
+              { sx: { display: 'flex', justifyContent: 'center', my: 4 } },
+              React.createElement(CircularProgress, null)
+            ) 
+          },
+          React.createElement(LostFoundManagement, null)
+        )
+      );
+    } else if (activeView === 'rideshare') {
+      return React.createElement(
+        Box, 
+        { sx: { mt: 2 } },
+        React.createElement(
+          Typography, 
+          { variant: 'h5', sx: { mb: 3 } },
+          'Manage Ride Share'
+        ),
+        React.createElement(RideShareList, {
+          adminView: true,
+          items: rideShareItems,
+          onEdit: handleEditRideShare,
+          onDelete: handleDeleteRideShare
+        }),
+        // Edit Ride Share Dialog
+        React.createElement(
+          Dialog, 
+          { 
+            open: editRideShareOpen, 
+            onClose: handleEditRideShareClose, 
+            maxWidth: 'sm', 
+            fullWidth: true 
+          },
+          React.createElement(DialogTitle, null, 'Edit Ride Share Post'),
+          React.createElement(
+            DialogContent,
+            null,
+            React.createElement(TextField, {
+              margin: 'normal',
+              label: 'Title',
+              fullWidth: true,
+              value: editRideShareData?.title || '',
+              onChange: e => setEditRideShareData({ ...editRideShareData, title: e.target.value })
+            })
+          ),
+          React.createElement(
+            DialogActions,
+            null,
+            React.createElement(Button, { onClick: handleEditRideShareClose }, 'Cancel'),
+            React.createElement(
+              Button, 
+              { 
+                variant: 'contained', 
+                color: 'primary', 
+                onClick: async () => {
+                  setActionLoading(true);
+                  try {
+                    const adminToken = localStorage.getItem('adminToken');
+                    axios.defaults.headers.common['Authorization'] = `Bearer ${adminToken}`;
+                    const response = await axios.put(`/api/rideshare/edit/${editRideShareData._id}`, editRideShareData);
+                    setSnackbar({
+                      open: true,
+                      message: response.data.message || 'Ride share post updated',
+                      severity: 'success'
+                    });
+                    setEditRideShareOpen(false);
+                    setEditRideShareData(null);
+                    await fetchRideShareData();
+                  } catch (err) {
+                    setSnackbar({
+                      open: true,
+                      message: err.response?.data?.error || err.message,
+                      severity: 'error'
+                    });
+                  } finally {
+                    setActionLoading(false);
+                  }
                 }
-              }}>Save</Button>
-            </DialogActions>
-          </Dialog>
-          {/* Delete Ride Share Confirmation Dialog */}
-          <Dialog open={deleteRideShareConfirmOpen} onClose={handleDeleteRideShareClose}>
-            <DialogTitle>Delete Ride Share Post</DialogTitle>
-            <DialogContent>
-              Are you sure you want to delete this ride share post?
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={handleDeleteRideShareClose}>Cancel</Button>
-              <Button color="error" variant="contained" onClick={handleDeleteRideShareConfirm}>Delete</Button>
-            </DialogActions>
-          </Dialog>
-        </Box>
+              },
+              'Save'
+            )
+          )
+        ),
+        // Delete Ride Share Confirmation Dialog
+        React.createElement(
+          Dialog, 
+          { 
+            open: deleteRideShareConfirmOpen, 
+            onClose: handleDeleteRideShareClose 
+          },
+          React.createElement(DialogTitle, null, 'Delete Ride Share Post'),
+          React.createElement(
+            DialogContent,
+            null,
+            'Are you sure you want to delete this ride share post?'
+          ),
+          React.createElement(
+            DialogActions,
+            null,
+            React.createElement(Button, { onClick: handleDeleteRideShareClose }, 'Cancel'),
+            React.createElement(
+              Button, 
+              { 
+                color: 'error', 
+                variant: 'contained', 
+                onClick: handleDeleteRideShareConfirm 
+              },
+              'Delete'
+            )
+          )
+        )
       );
     }
     if (loading) {
@@ -1514,56 +1836,144 @@ const AdminDashboard = () => {
       case 'dashboard':
         return (
           <Box sx={{ mt: 2 }}>
-            <Typography variant="h5" sx={{ mb: 3 }}>Dashboard Overview</Typography>
+            <Typography variant="h5" sx={{ mb: 3, color: '#1a237e', fontWeight: 'bold', textShadow: '1px 1px 2px rgba(0,0,0,0.1)' }}>Dashboard Overview</Typography>
+            
+            {/* Scrolling Announcements */}
+            <Paper sx={{ 
+              p: 2, 
+              mb: 3, 
+              borderRadius: '12px', 
+              overflow: 'hidden',
+              background: 'linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%)',
+              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.1)'
+            }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                <Typography variant="h6" sx={{ color: '#2e7d32', fontWeight: 'bold' }}>
+                  <NotificationsIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+                  Latest Announcements
+                </Typography>
+                <Button 
+                  variant="contained" 
+                  color="success" 
+                  size="small"
+                  sx={{ 
+                    boxShadow: '0 4px 8px rgba(0, 0, 0, 0.15)',
+                    '&:hover': { boxShadow: '0 6px 12px rgba(0, 0, 0, 0.2)' }
+                  }}
+                  onClick={() => {
+                    setActiveView('announcements');
+                    handleAnnouncementClick();
+                  }}
+                >
+                  Add Announcement
+                </Button>
+              </Box>
+              <ScrollingAnnouncement />
+            </Paper>
             
             {/* Stats Cards */}
             <Grid container spacing={3} sx={{ mb: 4 }}>
               <Grid item xs={12} sm={6} md={4}>
-                <Card sx={{ backgroundColor: '#e3f2fd', borderRadius: '12px', height: '100%' }}>
+                <Card sx={{ 
+                  background: 'linear-gradient(135deg, #fff8e1 0%, #ffe082 100%)', 
+                  borderRadius: '12px', 
+                  height: '100%',
+                  boxShadow: '0 4px 20px rgba(255, 152, 0, 0.2)',
+                  transition: 'transform 0.3s ease',
+                  '&:hover': {
+                    transform: 'translateY(-5px)',
+                    boxShadow: '0 6px 25px rgba(255, 152, 0, 0.3)'
+                  }
+                }}>
                   <CardContent>
-                    <Typography variant="h6" color="#1565c0">Total Users</Typography>
-                    <Typography variant="h3" sx={{ my: 1, fontWeight: 600 }}>{safeStats.users.total}</Typography>
+                    <Typography variant="h6" sx={{ color: '#e65100', fontWeight: 'bold' }}>Pending Verification</Typography>
+                    <Typography variant="h3" sx={{ my: 1, fontWeight: 600, color: '#f57c00' }}>{safeStats.users.pending}</Typography>
                     <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <GroupIcon color="primary" />
-                      <Typography variant="body2" sx={{ ml: 1 }}>Registered accounts</Typography>
+                      <PendingActionsIcon sx={{ color: '#ff9800' }} />
+                      <Typography variant="body2" sx={{ ml: 1, color: '#e65100' }}>Awaiting approval</Typography>
                     </Box>
                   </CardContent>
                 </Card>
               </Grid>
               
-              <Grid item xs={12} sm={6} md={4}>
-                <Card sx={{ backgroundColor: '#fff8e1', borderRadius: '12px', height: '100%' }}>
+              <Grid item xs={12} sm={6} md={3}>
+                <Card sx={{ 
+                  background: 'linear-gradient(135deg, #f3e5f5 0%, #ce93d8 100%)', 
+                  borderRadius: '12px', 
+                  height: '100%',
+                  boxShadow: '0 4px 20px rgba(156, 39, 176, 0.2)',
+                  transition: 'transform 0.3s ease',
+                  '&:hover': {
+                    transform: 'translateY(-5px)',
+                    boxShadow: '0 6px 25px rgba(156, 39, 176, 0.3)'
+                  }
+                }}>
                   <CardContent>
-                    <Typography variant="h6" color="#ed6c02">Pending Verification</Typography>
-                    <Typography variant="h3" sx={{ my: 1, fontWeight: 600 }}>{safeStats.users.pending}</Typography>
+                    <Typography variant="h6" sx={{ color: '#4a148c', fontWeight: 'bold' }}>Marketplace Items</Typography>
+                    <Typography variant="h3" sx={{ my: 1, fontWeight: 600, color: '#6a1b9a' }}>{safeStats.marketplace.total_items}</Typography>
                     <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <PendingActionsIcon color="warning" />
-                      <Typography variant="body2" sx={{ ml: 1 }}>Awaiting approval</Typography>
+                      <StoreIcon sx={{ color: '#8e24aa' }} />
+                      <Typography variant="body2" sx={{ ml: 1, color: '#4a148c' }}>Listed items</Typography>
                     </Box>
                   </CardContent>
                 </Card>
               </Grid>
-              
-              <Grid item xs={12} sm={6} md={4}>
-                <Card sx={{ backgroundColor: '#ffebee', borderRadius: '12px', height: '100%' }}>
+              <Grid item xs={12} sm={6} md={3}>
+                <Card sx={{ 
+                  background: 'linear-gradient(135deg, #e0f7fa 0%, #80deea 100%)', 
+                  borderRadius: '12px', 
+                  height: '100%',
+                  boxShadow: '0 4px 20px rgba(0, 188, 212, 0.2)',
+                  transition: 'transform 0.3s ease',
+                  '&:hover': {
+                    transform: 'translateY(-5px)',
+                    boxShadow: '0 6px 25px rgba(0, 188, 212, 0.3)'
+                  }
+                }}>
                   <CardContent>
-                    <Typography variant="h6" color="#c62828">Marketplace Items</Typography>
-                    <Typography variant="h3" sx={{ my: 1, fontWeight: 600 }}>{safeStats.marketplace.total_items}</Typography>
+                    <Typography variant="h6" sx={{ color: '#006064', fontWeight: 'bold' }}>Ride Share Posts</Typography>
+                    <Typography variant="h3" sx={{ my: 1, fontWeight: 600, color: '#00838f' }}>{safeStats.rideshare?.total || 0}</Typography>
                     <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <StoreIcon color="error" />
-                      <Typography variant="body2" sx={{ ml: 1 }}>Listed items</Typography>
+                      <DirectionsCarIcon sx={{ color: '#0097a7' }} />
+                      <Typography variant="body2" sx={{ ml: 1, color: '#006064' }}>Active posts: {safeStats.rideshare?.active || 0}</Typography>
                     </Box>
                   </CardContent>
                 </Card>
               </Grid>
-              {renderRideShareCard()}
+              <Grid item xs={12} sm={6} md={3}>
+                <Card sx={{ 
+                  background: 'linear-gradient(135deg, #e1f5fe 0%, #81d4fa 100%)', 
+                  borderRadius: '12px', 
+                  height: '100%',
+                  boxShadow: '0 4px 20px rgba(3, 169, 244, 0.2)',
+                  transition: 'transform 0.3s ease',
+                  '&:hover': {
+                    transform: 'translateY(-5px)',
+                    boxShadow: '0 6px 25px rgba(3, 169, 244, 0.3)'
+                  }
+                }}>
+                  <CardContent>
+                    <Typography variant="h6" sx={{ color: '#01579b', fontWeight: 'bold' }}>Lost & Found</Typography>
+                    <Typography variant="h3" sx={{ my: 1, fontWeight: 600, color: '#0277bd' }}>{safeStats.lost_found?.total || 0}</Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      <HelpIcon sx={{ color: '#0288d1' }} />
+                      <Typography variant="body2" sx={{ ml: 1, color: '#01579b' }}>Lost: {safeStats.lost_found?.lost || 0} | Found: {safeStats.lost_found?.found || 0}</Typography>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
             </Grid>
 
             {/* Recent activities section */}
             <Grid container spacing={3}>
               <Grid item xs={12}>
-                <Paper sx={{ p: 3, borderRadius: '12px' }}>
-                  <Typography variant="h6" sx={{ mb: 2 }}>Recent Activities</Typography>
+                <Paper sx={{ 
+                  p: 3, 
+                  borderRadius: '12px',
+                  background: 'linear-gradient(135deg, #e8eaf6 0%, #c5cae9 100%)',
+                  boxShadow: '0 4px 20px rgba(63, 81, 181, 0.15)'
+                }}>
+                  <Typography variant="h6" sx={{ mb: 2, color: '#303f9f', fontWeight: 'bold' }}>Recent Activities</Typography>
                   <Divider sx={{ mb: 2 }} />
                   
                   <Typography variant="subtitle1" sx={{ mb: 1 }}>Latest Marketplace Items</Typography>
@@ -1587,7 +1997,48 @@ const AdminDashboard = () => {
                     <Typography variant="body2" color="text.secondary">No recent marketplace items</Typography>
                   )}
                   <Divider sx={{ my: 2 }} />
-                  {renderRideShareActivity()}
+                  <Typography variant="subtitle1" sx={{ mb: 1 }}>Latest Ride Share Posts</Typography>
+                  {safeStats.recent_activities.rideshare && safeStats.recent_activities.rideshare.length > 0 ? (
+                    <List sx={{ width: '100%' }}>
+                      {safeStats.recent_activities.rideshare.map((item) => (
+                        <ListItem key={item._id} divider>
+                          <ListItemAvatar>
+                            <Avatar sx={{ bgcolor: '#388e3c' }}>
+                              <DirectionsCarIcon />
+                            </Avatar>
+                          </ListItemAvatar>
+                          <ListItemText
+                            primary={item.title}
+                            secondary={`From: ${item.origin} → To: ${item.destination}`}
+                          />
+                        </ListItem>
+                      ))}
+                    </List>
+                  ) : (
+                    <Typography variant="body2" color="text.secondary">No recent ride share posts</Typography>
+                  )}
+                  
+                  <Divider sx={{ my: 2 }} />
+                  <Typography variant="subtitle1" sx={{ mb: 1 }}>Latest Lost & Found Items</Typography>
+                  {safeStats.recent_activities.lost_found && safeStats.recent_activities.lost_found.length > 0 ? (
+                    <List sx={{ width: '100%' }}>
+                      {safeStats.recent_activities.lost_found.map((item) => (
+                        <ListItem key={item._id} divider>
+                          <ListItemAvatar>
+                            <Avatar sx={{ bgcolor: '#1565c0' }}>
+                              <HelpIcon />
+                            </Avatar>
+                          </ListItemAvatar>
+                          <ListItemText
+                            primary={item.title}
+                            secondary={`Type: ${item.item_type === 'lost' ? 'Lost' : 'Found'} | Location: ${item.location}`}
+                          />
+                        </ListItem>
+                      ))}
+                    </List>
+                  ) : (
+                    <Typography variant="body2" color="text.secondary">No recent lost & found items</Typography>
+                  )}
                 </Paper>
               </Grid>
             </Grid>
@@ -1597,8 +2048,13 @@ const AdminDashboard = () => {
       case 'pending':
         return (
           <Box sx={{ mt: 2, maxWidth: '100%' }}>
-            <Typography variant="h5" sx={{ mb: 3 }}>Pending Verification</Typography>
-            <Paper sx={{ p: 3, borderRadius: '12px' }}>
+            <Typography variant="h5" sx={{ mb: 3, color: '#ed6c02', fontWeight: 'bold', textShadow: '1px 1px 2px rgba(0,0,0,0.1)' }}>Pending Verification</Typography>
+            <Paper sx={{ 
+              p: 3, 
+              borderRadius: '12px',
+              background: 'linear-gradient(135deg, #fff8e1 0%, #fffde7 100%)',
+              boxShadow: '0 4px 20px rgba(255, 152, 0, 0.1)'
+            }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                 <Typography variant="h6">
                   Pending Users ({pendingUsers.length})
@@ -1678,103 +2134,344 @@ const AdminDashboard = () => {
                   ))}
                 </List>
               ) : (
-                <Typography variant="body1" align="center" sx={{ py: 3 }}>
-                  No pending verification requests
-                </Typography>
+                <Box sx={{ 
+                  display: 'flex', 
+                  flexDirection: 'column', 
+                  alignItems: 'center',
+                  py: 4
+                }}>
+                  <PendingActionsIcon sx={{ fontSize: 40, mb: 1, color: '#ff9800', opacity: 0.6 }} />
+                  <Typography variant="subtitle1" sx={{ fontWeight: 'medium', color: '#ed6c02' }}>
+                    No pending verification requests
+                  </Typography>
+                  <Typography variant="body2" sx={{ mt: 0.5, color: '#f57c00', opacity: 0.7 }}>
+                    All user verification requests have been processed
+                  </Typography>
+                </Box>
               )}
             </Paper>
           </Box>
         );
 
       case 'verified':
-        return (
-          <Box sx={{ mt: 2, maxWidth: '100%' }}>
-            <Typography variant="h5" sx={{ mb: 3 }}>Verified Users</Typography>
-            <Paper sx={{ p: 3, borderRadius: '12px' }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                <Typography variant="h6">
-                  Verified Users ({verifiedUsers.length})
-                </Typography>
-                <Button 
-                  variant="outlined" 
-                  color="primary" 
-                  onClick={fetchDashboardData}
-                  disabled={actionLoading !== ''}
-                  size="small"
-                >
-                  Refresh
-                </Button>
-              </Box>
-              <Divider sx={{ mb: 2 }} />
-              
-              {verifiedUsers.length > 0 ? (
-                <List sx={{ width: '100%', p: 0 }}>
-                  {verifiedUsers.map((user) => (
-                    <ListItem 
-                      key={user._id} 
-                      divider
-                      sx={{ flexWrap: { xs: 'wrap', md: 'nowrap' } }}
-                      secondaryAction={
-                        <Box sx={{ 
-                          display: 'flex', 
-                          flexWrap: 'wrap', 
-                          gap: 1, 
-                          width: { xs: '100%', md: 'auto' },
-                          mt: { xs: 1, md: 0 }
-                        }}>
-                          <Button 
-                            variant="outlined"
-                            color="primary"
-                            size="small"
-                            onClick={() => handleViewUserDetails(user)}
-                          >
-                            View
-                          </Button>
-                          <Button 
-                            variant="contained"
-                            color="info"
-                            size="small"
-                            onClick={() => handleEditUser(user)}
-                          >
-                            Edit
-                          </Button>
-                          <Button 
-                            variant="contained"
-                            color="error"
-                            size="small"
-                            onClick={() => handleDeleteVerifiedUser(user._id)}
-                            disabled={actionLoading === user._id}
-                          >
-                            {actionLoading === user._id ? <CircularProgress size={20} /> : 'Delete'}
-                          </Button>
-                        </Box>
-                      }
-                    >
-                      <ListItemAvatar>
-                        <Avatar src={user.profile_picture || ''}>
-                          {user.name ? user.name.charAt(0) : 'U'}
-                        </Avatar>
-                      </ListItemAvatar>
-                      <ListItemText
-                        primary={user.name}
-                        secondary={
-                          <>
-                            {user.email} • {user.student_id || 'No ID'} • {user.department || 'No Dept'}
-                            <br />
-                            Verified: {user.approved_at ? new Date(user.approved_at).toLocaleDateString() : 'N/A'}
-                          </>
+        return React.createElement(
+          Box,
+          { sx: { mt: 2, maxWidth: '100%' } },
+          React.createElement(
+            Typography,
+            { 
+              variant: 'h5', 
+              sx: { 
+                mb: 3, 
+                color: '#2e7d32', 
+                fontWeight: 'bold', 
+                textShadow: '1px 1px 2px rgba(0,0,0,0.1)' 
+              } 
+            },
+            React.createElement(VerifiedUserIcon, { sx: { mr: 1, verticalAlign: 'middle' } }),
+            'Verified Users'
+          ),
+          React.createElement(
+            Paper,
+            { 
+              sx: { 
+                p: 3, 
+                borderRadius: '16px',
+                background: 'linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%)',
+                boxShadow: '0 8px 32px rgba(76, 175, 80, 0.15)'
+              } 
+            },
+            React.createElement(
+              Box,
+              { 
+                sx: { 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center', 
+                  mb: 3 
+                } 
+              },
+              React.createElement(
+                Typography,
+                { variant: 'h6', sx: { color: '#2e7d32', fontWeight: 'bold' } },
+                React.createElement(PeopleIcon, { sx: { mr: 1, verticalAlign: 'middle' } }),
+                `Verified Users (${verifiedUsers.length})`
+              ),
+              React.createElement(
+                Button,
+                { 
+                  variant: 'contained', 
+                  color: 'success', 
+                  onClick: fetchDashboardData,
+                  disabled: actionLoading !== '',
+                  sx: { 
+                    borderRadius: '8px',
+                    boxShadow: '0 4px 12px rgba(76, 175, 80, 0.2)',
+                    '&:hover': {
+                      boxShadow: '0 6px 16px rgba(76, 175, 80, 0.3)'
+                    }
+                  }
+                },
+                'Refresh'
+              )
+            ),
+            React.createElement(Divider, { sx: { mb: 3 } }),
+            verifiedUsers.length > 0 ? 
+              React.createElement(
+                Grid,
+                { container: true, spacing: 3 },
+                verifiedUsers.map(user => 
+                  React.createElement(
+                    Grid,
+                    {
+                      item: true,
+                      xs: 12,
+                      sm: 6,
+                      md: 4,
+                      key: user._id
+                    },
+                    React.createElement(
+                      Card,
+                      {
+                        elevation: 3,
+                        sx: {
+                          height: '100%',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          borderRadius: '16px',
+                          overflow: 'hidden',
+                          transition: 'transform 0.3s ease, box-shadow 0.3s ease',
+                          '&:hover': {
+                            transform: 'translateY(-8px)',
+                            boxShadow: '0 16px 32px rgba(76, 175, 80, 0.25)'
+                          }
                         }
-                      />
-                    </ListItem>
-                  ))}
-                </List>
-              ) : (
-                <Typography variant="body1" align="center" sx={{ py: 3 }}>
-                  No verified users found
-                </Typography>
-              )}
-            </Paper>
-          </Box>
+                      },
+                      // Card Header
+                      React.createElement(
+                        Box,
+                        {
+                          sx: {
+                            p: 2,
+                            background: 'linear-gradient(135deg, #43a047 0%, #66bb6a 100%)',
+                            color: 'white',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between'
+                          }
+                        },
+                        React.createElement(
+                          Box,
+                          { sx: { display: 'flex', alignItems: 'center' } },
+                          React.createElement(VerifiedUserIcon, { sx: { mr: 1 } }),
+                          React.createElement(
+                            Typography,
+                            { variant: 'subtitle1', sx: { fontWeight: 'bold' } },
+                            'Verified User'
+                          )
+                        ),
+                        React.createElement(
+                          Chip,
+                          { 
+                            label: user.approved_at ? new Date(user.approved_at).toLocaleDateString() : 'N/A',
+                            size: 'small',
+                            sx: { 
+                              bgcolor: 'rgba(255, 255, 255, 0.25)',
+                              color: 'white',
+                              fontWeight: 'medium',
+                              '& .MuiChip-label': { px: 1 }
+                            }
+                          }
+                        )
+                      ),
+                      // User Avatar and Basic Info
+                      React.createElement(
+                        Box,
+                        { 
+                          sx: { 
+                            p: 2,
+                            display: 'flex',
+                            alignItems: 'center',
+                            borderBottom: '1px solid rgba(0, 0, 0, 0.08)'
+                          } 
+                        },
+                        React.createElement(
+                          Avatar,
+                          { 
+                            src: user.profile_picture || '',
+                            sx: { 
+                              width: 70, 
+                              height: 70, 
+                              mr: 2,
+                              border: '3px solid #43a047',
+                              boxShadow: '0 4px 8px rgba(0, 0, 0, 0.15)'
+                            }
+                          },
+                          user.name ? user.name.charAt(0).toUpperCase() : 'U'
+                        ),
+                        React.createElement(
+                          Box,
+                          null,
+                          React.createElement(
+                            Typography,
+                            { variant: 'h6', sx: { fontWeight: 'bold', color: '#2e7d32', mb: 0.5 } },
+                            user.name || 'Unknown'
+                          ),
+                          React.createElement(
+                            Typography,
+                            { 
+                              variant: 'body2', 
+                              sx: { 
+                                display: 'flex',
+                                alignItems: 'center',
+                                color: 'text.secondary'
+                              } 
+                            },
+                            React.createElement(EmailIcon, { sx: { fontSize: 16, mr: 0.5, color: '#43a047' } }),
+                            user.email
+                          )
+                        )
+                      ),
+                      // User Details
+                      React.createElement(
+                        CardContent,
+                        { sx: { flexGrow: 1, p: 2 } },
+                        React.createElement(
+                          Grid,
+                          { container: true, spacing: 2 },
+                          React.createElement(
+                            Grid,
+                            { item: true, xs: 6 },
+                            React.createElement(
+                              Box,
+                              { 
+                                sx: { 
+                                  bgcolor: 'rgba(76, 175, 80, 0.1)', 
+                                  p: 1.5, 
+                                  borderRadius: '12px',
+                                  height: '100%',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  alignItems: 'center',
+                                  justifyContent: 'center'
+                                }
+                              },
+                              React.createElement(BadgeIcon, { sx: { color: '#43a047', mb: 1, fontSize: 28 } }),
+                              React.createElement(
+                                Typography,
+                                { variant: 'body2', color: 'text.secondary', textAlign: 'center' },
+                                'Student ID'
+                              ),
+                              React.createElement(
+                                Typography,
+                                { variant: 'body1', sx: { fontWeight: 'medium', textAlign: 'center', mt: 0.5 } },
+                                user.student_id || 'No ID'
+                              )
+                            )
+                          ),
+                          React.createElement(
+                            Grid,
+                            { item: true, xs: 6 },
+                            React.createElement(
+                              Box,
+                              { 
+                                sx: { 
+                                  bgcolor: 'rgba(76, 175, 80, 0.1)', 
+                                  p: 1.5, 
+                                  borderRadius: '12px',
+                                  height: '100%',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  alignItems: 'center',
+                                  justifyContent: 'center'
+                                }
+                              },
+                              React.createElement(SchoolIcon, { sx: { color: '#43a047', mb: 1, fontSize: 28 } }),
+                              React.createElement(
+                                Typography,
+                                { variant: 'body2', color: 'text.secondary', textAlign: 'center' },
+                                'Department'
+                              ),
+                              React.createElement(
+                                Typography,
+                                { variant: 'body1', sx: { fontWeight: 'medium', textAlign: 'center', mt: 0.5 } },
+                                user.department || 'No Dept'
+                              )
+                            )
+                          )
+                        )
+                      ),
+                      // Card Actions
+                      React.createElement(
+                        CardActions,
+                        { sx: { p: 2, pt: 0, justifyContent: 'space-between' } },
+                        React.createElement(
+                          Button,
+                          { 
+                            variant: 'outlined',
+                            color: 'success',
+                            size: 'small',
+                            startIcon: React.createElement(VisibilityIcon),
+                            onClick: () => handleViewUserDetails(user),
+                            sx: { borderRadius: '8px' }
+                          },
+                          'View'
+                        ),
+                        React.createElement(
+                          Button,
+                          { 
+                            variant: 'contained',
+                            color: 'primary',
+                            size: 'small',
+                            startIcon: React.createElement(EditIcon),
+                            onClick: () => handleEditUser(user),
+                            sx: { borderRadius: '8px' }
+                          },
+                          'Edit'
+                        ),
+                        React.createElement(
+                          Button,
+                          { 
+                            variant: 'contained',
+                            color: 'error',
+                            size: 'small',
+                            startIcon: actionLoading !== user._id ? React.createElement(DeleteIcon) : null,
+                            onClick: () => handleDeleteVerifiedUser(user._id),
+                            disabled: actionLoading === user._id,
+                            sx: { borderRadius: '8px' }
+                          },
+                          actionLoading === user._id ? 
+                            React.createElement(CircularProgress, { size: 20 }) : 
+                            'Delete'
+                        )
+                      )
+                    )
+                  )
+                )
+              ) : 
+              React.createElement(
+                Box,
+                { 
+                  sx: { 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    alignItems: 'center',
+                    py: 4
+                  }
+                },
+                React.createElement(VerifiedUserIcon, { sx: { fontSize: 48, mb: 2, color: '#2e7d32', opacity: 0.6 } }),
+                React.createElement(
+                  Typography,
+                  { variant: 'subtitle1', sx: { fontWeight: 'medium', color: '#2e7d32' } },
+                  'No verified users found'
+                ),
+                React.createElement(
+                  Typography,
+                  { variant: 'body2', sx: { mt: 0.5, color: '#388e3c', opacity: 0.7 } },
+                  'There are currently no verified users in the system'
+                )
+              )
+          )
         );
 
       case 'marketplace':
@@ -2041,15 +2738,12 @@ const AdminDashboard = () => {
           <Box sx={{ mt: 2 }}>
             <Paper sx={{ p: 2, mb: 2 }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                <Typography variant="h6">Create Announcement</Typography>
-                <IconButton onClick={() => {
-                  setShowNotificationForm(false);
-                  setActiveView('dashboard');
-                }}>
+                <Typography variant="h6">Manage Announcements</Typography>
+                <IconButton onClick={handleAnnouncementClick}>
                   <CloseIcon />
                 </IconButton>
               </Box>
-              <NotificationForm />
+              <AnnouncementForm />
             </Paper>
           </Box>
         );
@@ -2230,6 +2924,190 @@ const AdminDashboard = () => {
           </Box>
         );
 
+      case 'lostfound':
+        return (
+          <Box sx={{ mt: 2, maxWidth: '100%' }}>
+            <Typography variant="h5" sx={{ mb: 3, color: '#2e7d32', fontWeight: 'bold', textShadow: '1px 1px 2px rgba(0,0,0,0.1)' }}>
+              <HelpIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+              Lost & Found Management
+            </Typography>
+            
+            <Paper sx={{ 
+              p: 3, 
+              borderRadius: '16px',
+              background: 'linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%)',
+              boxShadow: '0 8px 32px rgba(76, 175, 80, 0.15)'
+            }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+                <Typography variant="h6" sx={{ color: '#2e7d32', fontWeight: 'bold' }}>
+                  <HelpOutlineIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+                  Lost & Found Items ({lostFoundItems.length})
+                </Typography>
+                <Button 
+                  variant="contained" 
+                  color="success" 
+                  onClick={() => fetchLostFoundData(true)}
+                  disabled={loading}
+                  sx={{ 
+                    borderRadius: '8px',
+                    boxShadow: '0 4px 12px rgba(76, 175, 80, 0.2)',
+                    '&:hover': {
+                      boxShadow: '0 6px 16px rgba(76, 175, 80, 0.3)'
+                    }
+                  }}
+                >
+                  {loading ? <CircularProgress size={24} color="inherit" /> : 'Refresh'}
+                </Button>
+              </Box>
+              
+              <Divider sx={{ mb: 3 }} />
+              
+              {lostFoundItems.length > 0 ? (
+                <Grid container spacing={3}>
+                  {lostFoundItems.map(item => (
+                    <Grid item xs={12} sm={6} md={4} key={item._id}>
+                      <Card 
+                        elevation={3}
+                        sx={{
+                          height: '100%',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          borderRadius: '16px',
+                          overflow: 'hidden',
+                          transition: 'transform 0.3s ease, box-shadow 0.3s ease',
+                          '&:hover': {
+                            transform: 'translateY(-8px)',
+                            boxShadow: '0 16px 32px rgba(76, 175, 80, 0.25)'
+                          }
+                        }}
+                      >
+                        {/* Card Header */}
+                        <Box sx={{
+                          p: 2,
+                          background: item.type === 'lost' 
+                            ? 'linear-gradient(135deg, #ef5350 0%, #f44336 100%)' 
+                            : 'linear-gradient(135deg, #42a5f5 0%, #2196f3 100%)',
+                          color: 'white',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                            <HelpOutlineIcon sx={{ mr: 1 }} />
+                            <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>
+                              {item.type === 'lost' ? 'Lost Item' : 'Found Item'}
+                            </Typography>
+                          </Box>
+                          <Chip 
+                            label={item.formatted_date || 'Unknown date'}
+                            size="small"
+                            sx={{ 
+                              bgcolor: 'rgba(255, 255, 255, 0.25)',
+                              color: 'white',
+                              fontWeight: 'medium',
+                              '& .MuiChip-label': { px: 1 }
+                            }}
+                          />
+                        </Box>
+                        
+                        {/* Item Image */}
+                        {item.image && (
+                          <Box 
+                            component="img"
+                            src={item.image}
+                            alt={item.title}
+                            sx={{
+                              width: '100%',
+                              height: 140,
+                              objectFit: 'cover'
+                            }}
+                          />
+                        )}
+                        
+                        {/* Item Details */}
+                        <CardContent sx={{ flexGrow: 1, p: 2 }}>
+                          <Typography variant="h6" sx={{ mb: 1, fontWeight: 'bold' }}>
+                            {item.title}
+                          </Typography>
+                          
+                          <Typography variant="body2" sx={{ mb: 2, color: 'text.secondary' }}>
+                            {item.description.length > 100 
+                              ? `${item.description.substring(0, 100)}...` 
+                              : item.description}
+                          </Typography>
+                          
+                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1 }}>
+                            <Chip 
+                              label={`Category: ${item.category}`}
+                              size="small"
+                              sx={{ bgcolor: 'rgba(0, 0, 0, 0.08)' }}
+                            />
+                            <Chip 
+                              label={`Location: ${item.location}`}
+                              size="small"
+                              sx={{ bgcolor: 'rgba(0, 0, 0, 0.08)' }}
+                            />
+                            <Chip 
+                              label={`Status: ${item.status}`}
+                              size="small"
+                              color={item.status === 'resolved' ? 'success' : 'default'}
+                              sx={{ bgcolor: item.status === 'resolved' ? undefined : 'rgba(0, 0, 0, 0.08)' }}
+                            />
+                          </Box>
+                          
+                          {item.user && (
+                            <Box sx={{ display: 'flex', alignItems: 'center', mt: 2 }}>
+                              <Avatar sx={{ width: 24, height: 24, mr: 1, bgcolor: '#9c27b0' }}>
+                                {item.user.name ? item.user.name.charAt(0).toUpperCase() : 'U'}
+                              </Avatar>
+                              <Typography variant="body2" color="text.secondary">
+                                {item.user.name || 'Unknown User'}
+                              </Typography>
+                            </Box>
+                          )}
+                        </CardContent>
+                        
+                        {/* Actions */}
+                        <CardActions sx={{ p: 2, pt: 0 }}>
+                          <Button 
+                            size="small" 
+                            startIcon={<EditIcon />}
+                            onClick={() => handleEditLostFound(item)}
+                          >
+                            Edit
+                          </Button>
+                          <Button 
+                            size="small" 
+                            color="error"
+                            startIcon={<DeleteIcon />}
+                            onClick={() => handleDeleteLostFound(item)}
+                          >
+                            Delete
+                          </Button>
+                        </CardActions>
+                      </Card>
+                    </Grid>
+                  ))}
+                </Grid>
+              ) : (
+                <Box sx={{ 
+                  display: 'flex', 
+                  flexDirection: 'column', 
+                  alignItems: 'center', 
+                  justifyContent: 'center',
+                  py: 4
+                }}>
+                  <HelpOutlineIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
+                  <Typography variant="h6" color="text.secondary">No Lost & Found items found</Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1, textAlign: 'center' }}>
+                    There are no lost or found items in the system yet.
+                  </Typography>
+                </Box>
+              )}
+            </Paper>
+          </Box>
+        );
+        
       default:
         return <Typography>Select an option from the sidebar</Typography>;
     }
@@ -2267,6 +3145,81 @@ const AdminDashboard = () => {
             </Button>
           </DialogActions>
         </Dialog>
+      )}
+      
+      {/* Delete Lost & Found Item Dialog */}
+      {deleteLostFoundOpen && (
+        <Dialog open={deleteLostFoundOpen} onClose={handleDeleteLostFoundClose}>
+          <DialogTitle>Confirm Delete</DialogTitle>
+          <DialogContent>
+            <Typography>Are you sure you want to delete the {lostFoundToDelete?.type === 'lost' ? 'lost' : 'found'} item <b>{lostFoundToDelete?.title}</b>?</Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleDeleteLostFoundClose} color="primary">Cancel</Button>
+            <Button onClick={handleDeleteLostFoundConfirm} color="error" disabled={lostFoundActionLoading === lostFoundToDelete?._id}>
+              {lostFoundActionLoading === lostFoundToDelete?._id ? <CircularProgress size={20} color="inherit" /> : 'Delete'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+      )}
+      
+      {/* Edit Lost & Found Item Drawer */}
+      {editLostFoundOpen && editLostFoundData && (
+        <Drawer
+          anchor="right"
+          open={editLostFoundOpen}
+          onClose={handleEditLostFoundClose}
+          sx={{ '& .MuiDrawer-paper': { width: { xs: '100%', sm: 400 } } }}
+        >
+          <Box sx={{ p: 3 }}>
+            <Typography variant="h6" sx={{ mb: 3 }}>
+              Edit {editLostFoundData.type === 'lost' ? 'Lost' : 'Found'} Item
+            </Typography>
+            <TextField
+              label="Title"
+              value={editLostFoundData?.title || ''}
+              onChange={e => setEditLostFoundData({ ...editLostFoundData, title: e.target.value })}
+              fullWidth
+              sx={{ mb: 2 }}
+            />
+            <TextField
+              label="Description"
+              value={editLostFoundData?.description || ''}
+              onChange={e => setEditLostFoundData({ ...editLostFoundData, description: e.target.value })}
+              fullWidth
+              multiline
+              rows={3}
+              sx={{ mb: 2 }}
+            />
+            <TextField
+              label="Category"
+              value={editLostFoundData?.category || ''}
+              onChange={e => setEditLostFoundData({ ...editLostFoundData, category: e.target.value })}
+              fullWidth
+              sx={{ mb: 2 }}
+            />
+            <TextField
+              label="Location"
+              value={editLostFoundData?.location || ''}
+              onChange={e => setEditLostFoundData({ ...editLostFoundData, location: e.target.value })}
+              fullWidth
+              sx={{ mb: 2 }}
+            />
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 3 }}>
+              <Button onClick={handleEditLostFoundClose} color="inherit">
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleEditLostFoundSave} 
+                variant="contained" 
+                color="primary"
+                disabled={lostFoundActionLoading === editLostFoundData?._id}
+              >
+                {lostFoundActionLoading === editLostFoundData?._id ? <CircularProgress size={24} /> : 'Save Changes'}
+              </Button>
+            </Box>
+          </Box>
+        </Drawer>
       )}
       
       {/* Edit Marketplace Item Drawer */}
@@ -2429,7 +3382,12 @@ const AdminDashboard = () => {
           }}
           sx={{
             display: { xs: 'block', sm: 'none' },
-            '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
+            '& .MuiDrawer-paper': { 
+              boxSizing: 'border-box', 
+              width: drawerWidth,
+              background: 'linear-gradient(180deg, #1a237e 0%, #283593 100%)',
+              color: 'white'
+            },
           }}
         >
           {drawerContent}
@@ -2440,7 +3398,12 @@ const AdminDashboard = () => {
           variant="permanent"
           sx={{
             display: { xs: 'none', sm: 'block' },
-            '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
+            '& .MuiDrawer-paper': { 
+              boxSizing: 'border-box', 
+              width: drawerWidth,
+              background: 'linear-gradient(180deg, #1a237e 0%, #283593 100%)',
+              color: 'white'
+            },
           }}
           open
         >
@@ -2457,11 +3420,12 @@ const AdminDashboard = () => {
           width: { xs: '100%', sm: `calc(100% - ${drawerWidth}px)` },
           maxWidth: '100%',
           overflowX: 'hidden',
-          bgcolor: '#f5f5f5', 
+          background: 'linear-gradient(135deg, #f5f7fa 0%, #e4e8f0 100%)', 
           minHeight: '100vh' 
         }}
       >
         <Toolbar /> {/* Spacer for AppBar */}
+        {/* Admin panel should not display announcements */}
         {renderContent()}
       </Box>
 

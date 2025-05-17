@@ -1,0 +1,763 @@
+import React, { useState, useEffect, useRef } from 'react';
+import axios from 'axios';
+import { jwtDecode as jwt_decode } from 'jwt-decode';
+import { io } from 'socket.io-client';
+import {
+  Box,
+  Paper,
+  Typography,
+  TextField,
+  Button,
+  Avatar,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemAvatar,
+  IconButton,
+  CircularProgress,
+  Chip,
+  Tooltip,
+  Snackbar,
+  Alert
+} from '@mui/material';
+import SendIcon from '@mui/icons-material/Send';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
+import AttachFileIcon from '@mui/icons-material/AttachFile';
+
+const MessageDisplay = ({ userId }) => {
+  const [conversations, setConversations] = useState([]);
+  const [selectedConversation, setSelectedConversation] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [attachments, setAttachments] = useState([]);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const [error, setError] = useState(null);
+  const [socket, setSocket] = useState(null);
+  const [isSocketConnected, setIsSocketConnected] = useState(false);
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarSeverity, setSnackbarSeverity] = useState('info');
+  const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
+  
+  // Initialize socket connection
+  useEffect(() => {
+    if (!userId) return;
+    
+    // Connect to socket server
+    const socketInstance = io('http://localhost:5000');
+    setSocket(socketInstance);
+    
+    // Socket event listeners
+    socketInstance.on('connect', () => {
+      console.log('Socket connected');
+      setIsSocketConnected(true);
+      
+      // Register user with socket
+      socketInstance.emit('register_user', { user_id: userId });
+    });
+    
+    socketInstance.on('disconnect', () => {
+      console.log('Socket disconnected');
+      setIsSocketConnected(false);
+    });
+    
+    socketInstance.on('new_message', (message) => {
+      console.log('New message received:', message);
+      
+      // Add message to the list if it belongs to the current conversation
+      if (selectedConversation) {
+        const isForCurrentConversation = (
+          (message.sender_id === userId && message.receiver_id === selectedConversation.other_participant?.id) ||
+          (message.sender_id === selectedConversation.other_participant?.id && message.receiver_id === userId)
+        );
+        
+        if (isForCurrentConversation) {
+          setMessages(prevMessages => [...prevMessages, message]);
+        }
+      }
+      
+      // Update conversations list to show the latest message
+      fetchConversations();
+    });
+    
+    socketInstance.on('error', (error) => {
+      console.error('Socket error:', error);
+      showSnackbar(error.message || 'An error occurred', 'error');
+    });
+    
+    // Clean up on unmount
+    return () => {
+      socketInstance.disconnect();
+    };
+  }, [userId, selectedConversation]);
+  
+  // Scroll to bottom of messages when new messages arrive
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages]);
+  
+  // Fetch all conversations for the current user
+  useEffect(() => {
+    if (userId) {
+      fetchConversations();
+    }
+  }, [userId]);
+  
+  const fetchConversations = async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setError('Authentication required. Please log in again.');
+        return;
+      }
+      
+      // Try to get conversations from the API
+      try {
+        const response = await axios.get('/api/messages/conversations', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (response.data && Array.isArray(response.data)) {
+          // Sort conversations by last message time
+          const sortedConversations = response.data.sort((a, b) => {
+            return new Date(b.last_message_time) - new Date(a.last_message_time);
+          });
+          
+          setConversations(sortedConversations);
+          
+          // If there are conversations, select the first one
+          if (sortedConversations.length > 0) {
+            handleSelectConversation(sortedConversations[0]);
+          }
+        }
+      } catch (apiError) {
+        console.error('Error fetching conversations from API:', apiError);
+        createDemoConversations();
+      }
+    } catch (error) {
+      console.error('Error in fetchConversations:', error);
+      setError('Could not load your messages. Please try again later.');
+      createDemoConversations();
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Create demo conversations for development
+  const createDemoConversations = () => {
+    if (process.env.NODE_ENV === 'development') {
+      const placeholderConversations = [
+        {
+          _id: '1',
+          participants: [userId, 'user2'],
+          other_participant: {
+            id: 'user2',
+            name: 'John Doe',
+            email: 'john@example.com'
+          },
+          last_message: 'Hey, is this still available?',
+          last_message_time: new Date(Date.now() - 3600000).toISOString(), // 1 hour ago
+          unread_count: 2
+        },
+        {
+          _id: '2',
+          participants: [userId, 'user3'],
+          other_participant: {
+            id: 'user3',
+            name: 'Jane Smith',
+            email: 'jane@example.com'
+          },
+          last_message: 'Thanks for your help!',
+          last_message_time: new Date(Date.now() - 86400000).toISOString(), // 1 day ago
+          unread_count: 0
+        }
+      ];
+      setConversations(placeholderConversations);
+      
+      // Select the first conversation
+      if (placeholderConversations.length > 0) {
+        handleSelectConversation(placeholderConversations[0]);
+      }
+    }
+  };
+  
+  // Fetch messages for a specific conversation
+  const fetchMessages = async (conversationId) => {
+    if (!conversationId) return;
+    
+    setLoadingMessages(true);
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+      
+      const response = await axios.get(`/api/messages/conversations/${conversationId}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (response.data && Array.isArray(response.data)) {
+        setMessages(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching messages:', error);
+      setMessages([]);
+      showSnackbar('Error loading messages. Please try again.', 'error');
+    } finally {
+      setLoadingMessages(false);
+    }
+  };
+  
+  // Show snackbar message
+  const showSnackbar = (message, severity = 'info') => {
+    setSnackbarMessage(message);
+    setSnackbarSeverity(severity);
+    setSnackbarOpen(true);
+  };
+  
+  // Handle snackbar close
+  const handleSnackbarClose = (event, reason) => {
+    if (reason === 'clickaway') return;
+    setSnackbarOpen(false);
+  };
+  
+  // Handle selecting a conversation
+  const handleSelectConversation = (conversation) => {
+    setSelectedConversation(conversation);
+    fetchMessages(conversation._id);
+  };
+  
+  // Handle file attachment selection
+  const handleAttachmentSelect = (event) => {
+    if (event.target.files && event.target.files.length > 0) {
+      const newAttachments = Array.from(event.target.files).map(file => ({
+        file,
+        preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
+        type: file.type.startsWith('image/') ? 'image' : 
+              file.type.startsWith('video/') ? 'video' : 
+              file.type === 'application/pdf' ? 'pdf' : 'file',
+        name: file.name,
+        size: file.size
+      }));
+      
+      setAttachments([...attachments, ...newAttachments]);
+      attachments.forEach(attachment => {
+        formData.append('attachments', attachment.file);
+      });
+    }
+    
+    // If socket is connected and no attachments, send via socket.io
+    if (socket && isSocketConnected && !formData) {
+      console.log('Sending message via Socket.IO');
+      socket.emit('send_message', messageData);
+      
+      // Optimistically add message to UI
+      const optimisticMessage = {
+        _id: 'temp-' + Date.now(),
+        sender_id: userId,
+        receiver_id: selectedConversation.other_participant.id,
+        content: newMessage.trim(),
+        created_at: new Date().toISOString(),
+        read: false
+      };
+      
+      setMessages([...messages, optimisticMessage]);
+      
+      // Update conversations list
+      updateConversationWithNewMessage(newMessage.trim());
+      
+      // Clear inputs
+      setNewMessage('');
+      setAttachments([]);
+    } else {
+      // Socket not connected or has attachments, use REST API
+      console.log('Sending message via REST API');
+      
+      const config = {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': formData ? 'multipart/form-data' : 'application/json'
+        }
+      };
+      
+      const response = await axios.post(
+        '/api/messages', 
+        formData || messageData, 
+        config
+      );
+      
+      if (response.data) {
+        // Add the new message to the list
+        setMessages([...messages, response.data.data || response.data]);
+        
+        // Update conversations list
+        updateConversationWithNewMessage(newMessage.trim() || 'Sent an attachment');
+      }
+      
+      // Clear inputs
+      setNewMessage('');
+      setAttachments([]);
+          content: newMessage,
+          timestamp: new Date().toISOString()
+        };
+        
+        setMessages([...messages, newMsg]);
+        
+        const lastMessageText = newMessage.trim() || 
+          (attachments.length > 0 ? `Sent ${attachments.length} attachment(s)` : 'Sent a message');
+          
+        const updatedConversations = conversations.map(conv => 
+          conv._id === selectedConversation._id 
+            ? { ...conv, last_message: lastMessageText, last_message_time: new Date().toISOString() }
+            : conv
+        );
+        setConversations(updatedConversations);
+        
+        setNewMessage('');
+        setAttachments([]);
+      }
+    } finally {
+      setUploadingAttachment(false);
+    }
+  };
+  
+  // Format timestamp to readable format
+  const formatTimestamp = (timestamp) => {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' ' + 
+           date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  };
+  
+  // Generate a color based on a string (for consistent avatar colors)
+  const stringToColor = (str) => {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    let color = '#';
+    for (let i = 0; i < 3; i++) {
+      const value = (hash >> (i * 8)) & 0xFF;
+      color += ('00' + value.toString(16)).substr(-2);
+    }
+    return color;
+  };
+  
+  return (
+    <Paper sx={{ 
+      height: '70vh', 
+      overflow: 'hidden', 
+      display: 'flex', 
+      borderRadius: 2, 
+      boxShadow: '0 8px 24px rgba(0,0,0,0.12)', 
+      background: 'linear-gradient(to bottom, #ffffff, #f9f9f9)'
+    }}>
+      {/* Left side - Conversations list */}
+      <Box sx={{ 
+        width: '30%', 
+        borderRight: '1px solid rgba(0,0,0,0.08)', 
+        display: 'flex', 
+        flexDirection: 'column',
+        bgcolor: 'rgba(249, 250, 251, 0.8)'
+      }}>
+        <Box sx={{ 
+          p: 2, 
+          borderBottom: '1px solid rgba(0,0,0,0.08)', 
+          bgcolor: '#f5f5f5',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between'
+        }}>
+          <Typography variant="h6" sx={{ fontWeight: 600, color: '#1a237e' }}>Messages</Typography>
+          {error && (
+            <Tooltip title="Refresh">
+              <IconButton size="small" onClick={fetchConversations}>
+                <RefreshIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
+        </Box>
+        
+        <Box sx={{ flexGrow: 1, overflow: 'auto' }}>
+          {loading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', p: 3 }}>
+              <CircularProgress size={28} thickness={4} sx={{ color: '#3f51b5' }} />
+            </Box>
+          ) : error ? (
+            <Box sx={{ p: 3, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+              <Typography color="error" sx={{ mb: 2 }}>{error}</Typography>
+              <Button 
+                variant="outlined" 
+                color="primary" 
+                startIcon={<RefreshIcon />}
+                onClick={fetchConversations}
+                size="small"
+              >
+                Try Again
+              </Button>
+            </Box>
+          ) : conversations.length > 0 ? (
+            <List sx={{ p: 0 }}>
+              {conversations.map((conversation) => {
+                // Get the other participant's name or email
+                const otherParticipantName = conversation.other_participant?.name || 
+                                             conversation.other_participant?.email || 'Unknown User';
+                
+                // Get the first letter for the avatar
+                const avatarLetter = otherParticipantName.charAt(0).toUpperCase();
+                
+                // Format the timestamp
+                const formattedTime = conversation.last_message_time ? 
+                  formatTimestamp(conversation.last_message_time) : '';
+                
+                const avatarColor = stringToColor(otherParticipantName);
+                
+                return (
+                  <ListItem 
+                    key={conversation._id} 
+                    button 
+                    selected={selectedConversation?._id === conversation._id}
+                    onClick={() => handleSelectConversation(conversation)}
+                    sx={{ 
+                      borderBottom: '1px solid rgba(0,0,0,0.05)',
+                      transition: 'all 0.2s ease',
+                      '&:hover': { bgcolor: 'rgba(0,0,0,0.03)' },
+                      bgcolor: selectedConversation?._id === conversation._id ? 'rgba(63, 81, 181, 0.08)' : 'inherit',
+                      py: 1.5
+                    }}
+                  >
+                    <ListItemAvatar>
+                      <Avatar 
+                        src={conversation.other_participant?.profile_picture || ''}
+                        sx={{ 
+                          bgcolor: avatarColor,
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                        }}
+                      >
+                        {avatarLetter}
+                      </Avatar>
+                    </ListItemAvatar>
+                    <ListItemText 
+                      primary={
+                        <Typography 
+                          variant="subtitle1" 
+                          sx={{ 
+                            fontWeight: conversation.unread_count > 0 ? 600 : 400,
+                            color: conversation.unread_count > 0 ? '#1a237e' : 'inherit',
+                            fontSize: '0.95rem'
+                          }}
+                        >
+                          {otherParticipantName}
+                        </Typography>
+                      }
+                      secondary={
+                        <Box sx={{ display: 'flex', flexDirection: 'column', mt: 0.5 }}>
+                          <Typography 
+                            variant="body2" 
+                            noWrap 
+                            sx={{ 
+                              display: 'inline-block', 
+                              maxWidth: '180px', 
+                              textOverflow: 'ellipsis',
+                              fontWeight: conversation.unread_count > 0 ? 500 : 400,
+                              color: conversation.unread_count > 0 ? 'text.primary' : 'text.secondary',
+                              fontSize: '0.85rem'
+                            }}
+                          >
+                            {conversation.last_message || 'No messages yet'}
+                          </Typography>
+                          <Typography 
+                            variant="caption" 
+                            color="text.secondary"
+                            sx={{ mt: 0.5, fontSize: '0.75rem' }}
+                          >
+                            {formattedTime}
+                          </Typography>
+                        </Box>
+                      }
+                    />
+                    {conversation.unread_count > 0 && (
+                      <Box
+                        sx={{
+                          bgcolor: '#3f51b5',
+                          color: 'white',
+                          borderRadius: '50%',
+                          minWidth: 22,
+                          height: 22,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '0.75rem',
+                          fontWeight: 'bold',
+                          ml: 1,
+                          px: 1,
+                          boxShadow: '0 2px 5px rgba(0,0,0,0.2)'
+                        }}
+                      >
+                        {conversation.unread_count}
+                      </Box>
+                    )}
+                  </ListItem>
+                );
+              })}
+            </List>
+          ) : (
+            <Box sx={{ 
+              p: 3, 
+              textAlign: 'center', 
+              display: 'flex', 
+              flexDirection: 'column', 
+              alignItems: 'center', 
+              justifyContent: 'center', 
+              height: '100%' 
+            }}>
+              <ChatBubbleOutlineIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
+              <Typography color="text.secondary" sx={{ mb: 1 }}>No messages yet</Typography>
+              <Typography variant="caption" color="text.disabled" sx={{ mb: 2, px: 4 }}>
+                Messages from your marketplace, ride share, and lost & found interactions will appear here
+              </Typography>
+            </Box>
+          )}
+        </Box>
+      </Box>
+      
+      {/* Right side - Messages */}
+      <Box sx={{ width: '70%', display: 'flex', flexDirection: 'column' }}>
+        {selectedConversation ? (
+          <>
+            {/* Conversation header */}
+            <Box sx={{ 
+              p: 2, 
+              borderBottom: '1px solid rgba(0,0,0,0.08)', 
+              bgcolor: 'rgba(249, 250, 251, 0.8)', 
+              display: 'flex', 
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}>
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <Avatar 
+                  src={selectedConversation.other_participant?.profile_picture || ''}
+                  sx={{ 
+                    mr: 2, 
+                    bgcolor: '#3f51b5',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                    width: 40,
+                    height: 40
+                  }}
+                >
+                  {selectedConversation.other_participant?.name?.charAt(0).toUpperCase() || 
+                  selectedConversation.other_participant?.email?.charAt(0).toUpperCase() || 'U'}
+                </Avatar>
+                <Box>
+                  <Typography variant="h6" sx={{ fontWeight: 600, color: '#1a237e', fontSize: '1.1rem' }}>
+                    {selectedConversation.other_participant?.name || 
+                    selectedConversation.other_participant?.email || 'Unknown User'}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {selectedConversation.other_participant?.email || ''}
+                  </Typography>
+                </Box>
+              </Box>
+              <Tooltip title="Refresh messages">
+                <IconButton size="small" onClick={() => fetchMessages(selectedConversation._id)}>
+                  <RefreshIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Box>
+            
+            {/* Messages area */}
+            <Box sx={{ 
+              flexGrow: 1, 
+              overflow: 'auto', 
+              p: 3, 
+              display: 'flex', 
+              flexDirection: 'column',
+              bgcolor: 'rgba(250, 250, 252, 0.5)'
+            }}>
+              {loadingMessages ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                  <CircularProgress size={28} thickness={4} sx={{ color: '#3f51b5' }} />
+                </Box>
+              ) : messages.length > 0 ? (
+                messages.map((message, index) => {
+                  const isFromMe = message.sender_id === userId;
+                  const prevMessage = index > 0 ? messages[index - 1] : null;
+                  const showAvatar = !isFromMe && (!prevMessage || prevMessage.sender_id !== message.sender_id);
+                  
+                  return (
+                    <Box
+                      key={message._id}
+                      sx={{
+                        display: 'flex',
+                        justifyContent: isFromMe ? 'flex-end' : 'flex-start',
+                        mb: 1.5,
+                        position: 'relative'
+                      }}
+                    >
+                      {showAvatar ? (
+                        <Avatar
+                          src={selectedConversation.other_participant?.profile_picture || ''}
+                          sx={{ 
+                            mr: 1, 
+                            width: 32, 
+                            height: 32, 
+                            bgcolor: '#3f51b5',
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                          }}
+                        >
+                          {selectedConversation.other_participant?.name?.charAt(0).toUpperCase() || 
+                          selectedConversation.other_participant?.email?.charAt(0).toUpperCase() || 'U'}
+                        </Avatar>
+                      ) : !isFromMe ? (
+                        <Box sx={{ width: 32, mr: 1 }} />
+                      ) : null}
+                      <Box
+                        sx={{
+                          maxWidth: '70%',
+                          p: 1.5,
+                          borderRadius: isFromMe ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+                          bgcolor: isFromMe ? 'linear-gradient(135deg, #3f51b5, #5c6bc0)' : '#f5f5f5',
+                          background: isFromMe ? 'linear-gradient(135deg, #3f51b5, #5c6bc0)' : '#f5f5f5',
+                          color: isFromMe ? 'white' : 'text.primary',
+                          boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
+                          position: 'relative'
+                        }}
+                      >
+                        <Typography variant="body1" sx={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
+                          {message.content}
+                        </Typography>
+                        <Typography 
+                          variant="caption" 
+                          color={isFromMe ? 'rgba(255,255,255,0.7)' : 'text.secondary'} 
+                          sx={{ display: 'block', mt: 0.5, textAlign: 'right', fontSize: '0.7rem' }}
+                        >
+                          {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  );
+                })
+              ) : (
+                <Box sx={{ 
+                  display: 'flex', 
+                  flexDirection: 'column',
+                  justifyContent: 'center', 
+                  alignItems: 'center', 
+                  height: '100%' 
+                }}>
+                  <ChatBubbleOutlineIcon sx={{ fontSize: 64, color: 'text.disabled', mb: 2, opacity: 0.3 }} />
+                  <Typography color="text.secondary" sx={{ mb: 1 }}>No messages yet</Typography>
+                  <Typography variant="caption" color="text.disabled" sx={{ textAlign: 'center', maxWidth: '80%' }}>
+                    Send a message to start the conversation
+                  </Typography>
+                </Box>
+              )}
+              <div ref={messagesEndRef} />
+            </Box>
+            
+            {/* Message input */}
+            <Box sx={{ 
+              p: 2, 
+              borderTop: '1px solid rgba(0,0,0,0.08)', 
+              display: 'flex', 
+              alignItems: 'center',
+              bgcolor: 'rgba(249, 250, 251, 0.8)'
+            }}>
+              {attachments.length > 0 && (
+                <Box sx={{ mb: 1, display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                  {attachments.map((attachment, index) => (
+                    <Chip
+                      key={index}
+                      label={attachment.name}
+                      onDelete={() => {
+                        const newAttachments = [...attachments];
+                        newAttachments.splice(index, 1);
+                        setAttachments(newAttachments);
+                      }}
+                      size="small"
+                      sx={{ mb: 1 }}
+                    />
+                  ))}
+                </Box>
+              )}
+              <TextField
+                fullWidth
+                placeholder="Type a message..."
+                variant="outlined"
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage(e)}
+                multiline
+                maxRows={4}
+                sx={{ 
+                  mr: 2,
+                  '& .MuiOutlinedInput-root': {
+                    borderRadius: '24px',
+                    '& fieldset': {
+                      borderColor: 'rgba(0, 0, 0, 0.1)',
+                    },
+                    '&:hover fieldset': {
+                      borderColor: 'rgba(63, 81, 181, 0.5)',
+                    },
+                  }
+                }}
+                size="small"
+              />
+              <input
+                type="file"
+                multiple
+                style={{ display: 'none' }}
+                ref={fileInputRef}
+                onChange={handleAttachmentSelect}
+              />
+              <IconButton 
+                onClick={() => fileInputRef.current.click()} 
+                disabled={uploadingAttachment}
+                color="primary"
+                sx={{ mr: 1 }}
+              >
+                <AttachFileIcon />
+              </IconButton>
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={handleSendMessage}
+                disabled={(!newMessage.trim() && attachments.length === 0) || uploadingAttachment}
+                startIcon={uploadingAttachment ? <CircularProgress size={20} /> : <SendIcon />}
+                sx={{ 
+                  borderRadius: '24px',
+                  boxShadow: '0 2px 8px rgba(63, 81, 181, 0.3)',
+                  px: 2
+                }}
+              >
+                Send
+              </Button>
+            </Box>
+          </>
+        ) : (
+          <Box sx={{ 
+            display: 'flex', 
+            flexDirection: 'column',
+            justifyContent: 'center', 
+            alignItems: 'center', 
+            height: '100%',
+            bgcolor: 'rgba(250, 250, 252, 0.5)'
+          }}>
+            <ChatBubbleOutlineIcon sx={{ fontSize: 72, color: 'text.disabled', mb: 3, opacity: 0.3 }} />
+            <Typography variant="h6" color="text.secondary" sx={{ mb: 1 }}>Select a conversation</Typography>
+            <Typography variant="body2" color="text.disabled" sx={{ textAlign: 'center', maxWidth: '60%' }}>
+              Choose a conversation from the list to view messages
+            </Typography>
+          </Box>
+        )}
+      </Box>
+    </Paper>
+  );
+};
+
+export default MessageDisplay;

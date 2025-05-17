@@ -34,28 +34,14 @@ const MessageCenter = ({ userId }) => {
     const fetchConversations = async () => {
       setLoading(true);
       try {
-        console.log('Fetching conversations for user ID:', userId);
-        const token = localStorage.getItem('token');
-        const response = await axios.get(`http://localhost:5000/api/marketplace/messages/conversations`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-        console.log('Conversations fetched successfully:', response.data);
+        const response = await axios.get(`http://localhost:5000/api/messages/conversations/${userId}`);
         setConversations(response.data);
         // Select the first conversation by default if available
         if (response.data.length > 0) {
-          console.log('Setting selected conversation:', response.data[0]);
           setSelectedConversation(response.data[0]);
-        } else {
-          console.log('No conversations found');
         }
       } catch (error) {
         console.error('Error fetching conversations:', error);
-        if (error.response) {
-          console.error('Error response data:', error.response.data);
-          console.error('Error response status:', error.response.status);
-        }
       } finally {
         setLoading(false);
       }
@@ -69,53 +55,14 @@ const MessageCenter = ({ userId }) => {
   // Fetch messages for the selected conversation
   useEffect(() => {
     const fetchMessages = async () => {
-      if (!selectedConversation) {
-        console.log('No selected conversation, skipping message fetch');
-        return;
-      }
+      if (!selectedConversation) return;
       
       setLoading(true);
       try {
-        console.log('Fetching messages for conversation:', selectedConversation);
-        const token = localStorage.getItem('token');
-        // Get the other user ID from the conversation
-        let otherUserId;
-        
-        // Handle different conversation structures
-        if (selectedConversation.participants) {
-          console.log('Using participants array to find other user');
-          // If conversation has a participants array
-          otherUserId = selectedConversation.participants.find(p => p._id !== userId)?._id;
-        } else if (selectedConversation.other_participant) {
-          console.log('Using other_participant object to find other user');
-          // If conversation has an other_participant object
-          otherUserId = selectedConversation.other_participant.id;
-        } else if (selectedConversation.participant1_id && selectedConversation.participant2_id) {
-          console.log('Using participant IDs directly to find other user');
-          // If conversation has participant IDs directly
-          otherUserId = selectedConversation.participant1_id === userId ? 
-            selectedConversation.participant2_id : selectedConversation.participant1_id;
-        }
-        
-        if (!otherUserId) {
-          console.error('Could not find other user in conversation', selectedConversation);
-          return;
-        }
-        
-        console.log('Fetching messages with other user ID:', otherUserId);
-        const response = await axios.get(`http://localhost:5000/api/marketplace/messages/${otherUserId}`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-        console.log('Messages fetched successfully:', response.data);
+        const response = await axios.get(`http://localhost:5000/api/messages/${selectedConversation._id}`);
         setMessages(response.data);
       } catch (error) {
         console.error('Error fetching messages:', error);
-        if (error.response) {
-          console.error('Error response data:', error.response.data);
-          console.error('Error response status:', error.response.status);
-        }
       } finally {
         setLoading(false);
       }
@@ -148,49 +95,11 @@ const MessageCenter = ({ userId }) => {
     
     setSendingMessage(true);
     try {
-      const token = localStorage.getItem('token');
-      // Get the receiver ID from the conversation
-      let receiverId;
-      
-      // Handle different conversation structures
-      if (selectedConversation.participants) {
-        // If conversation has a participants array
-        receiverId = selectedConversation.participants.find(p => p._id !== userId)?._id;
-      } else if (selectedConversation.other_participant) {
-        // If conversation has an other_participant object
-        receiverId = selectedConversation.other_participant.id;
-      } else if (selectedConversation.participant1_id && selectedConversation.participant2_id) {
-        // If conversation has participant IDs directly
-        receiverId = selectedConversation.participant1_id === userId ? 
-          selectedConversation.participant2_id : selectedConversation.participant1_id;
-      }
-      
-      if (!receiverId) {
-        console.error('Could not find receiver ID', selectedConversation);
-        return;
-      }
-      
-      // Determine if we have post information in the conversation
-      let postId = null;
-      let postType = 'marketplace'; // Default to marketplace
-      
-      if (selectedConversation.post_id) {
-        postId = selectedConversation.post_id;
-      } else if (selectedConversation.latest_message && selectedConversation.latest_message.post_id) {
-        postId = selectedConversation.latest_message.post_id;
-        postType = selectedConversation.latest_message.post_type || 'marketplace';
-      }
-      
-      const response = await axios.post('http://localhost:5000/api/marketplace/messages', {
-        receiver_id: receiverId,
+      const response = await axios.post('http://localhost:5000/api/messages', {
+        conversationId: selectedConversation._id,
+        senderId: userId,
+        receiverId: selectedConversation.participants.find(p => p._id !== userId)?._id,
         content: newMessage,
-        post_id: postId,
-        post_type: postType,
-      }, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
       });
       
       // Add the new message to the list

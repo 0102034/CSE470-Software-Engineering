@@ -24,7 +24,7 @@ class Notification:
         try:
             if not data.get('message'):
                 raise ValueError('Message is required')
-            if not data.get('page') or data['page'] not in ['home', 'ride_share', 'lost_found', 'marketplace']:
+            if not data.get('page') or data['page'] not in ['ride_share', 'lost_found', 'marketplace']:
                 raise ValueError('Valid page is required')
             if not data.get('admin_id'):
                 raise ValueError('Admin ID is required')
@@ -46,7 +46,7 @@ class Notification:
     def get_active_notifications(self, page):
         self._ensure_connection()
         try:
-            if not page or page not in ['home', 'ride_share', 'lost_found', 'marketplace']:
+            if not page or page not in ['ride_share', 'lost_found', 'marketplace']:
                 raise ValueError('Valid page is required')
 
             notifications = list(self.collection.find({
@@ -69,13 +69,18 @@ class Notification:
             if not notification_id:
                 raise ValueError('Notification ID is required')
 
-            # Actually delete the notification instead of just marking it inactive
-            result = self.collection.delete_one({'_id': ObjectId(notification_id)})
+            result = self.collection.update_one(
+                {'_id': ObjectId(notification_id)},
+                {'$set': {
+                    'active': False,
+                    'updated_at': datetime.utcnow()
+                }}
+            )
 
-            if result.deleted_count == 0:
+            if result.matched_count == 0:
                 raise ValueError('Notification not found')
 
-            return result.deleted_count > 0
+            return result.modified_count > 0
         except Exception as e:
             current_app.logger.error(f'Failed to deactivate notification: {str(e)}')
             raise
@@ -92,40 +97,4 @@ class Notification:
             return notifications
         except Exception as e:
             current_app.logger.error(f'Failed to get all notifications: {str(e)}')
-            raise
-            
-    def update_notification(self, notification_id, data):
-        self._ensure_connection()
-        try:
-            if not notification_id:
-                raise ValueError('Notification ID is required')
-                
-            if not data.get('message'):
-                raise ValueError('Message is required')
-                
-            if not data.get('page') or data['page'] not in ['home', 'ride_share', 'lost_found', 'marketplace']:
-                raise ValueError('Valid page is required')
-
-            # Prepare update data
-            update_data = {
-                'message': data['message'],
-                'page': data['page'],
-                'updated_at': datetime.utcnow()
-            }
-            
-            # Add updated_by if available
-            if data.get('updated_by'):
-                update_data['updated_by'] = data['updated_by']
-
-            result = self.collection.update_one(
-                {'_id': ObjectId(notification_id)},
-                {'$set': update_data}
-            )
-
-            if result.matched_count == 0:
-                raise ValueError('Notification not found')
-
-            return result.modified_count > 0
-        except Exception as e:
-            current_app.logger.error(f'Failed to update notification: {str(e)}')
             raise

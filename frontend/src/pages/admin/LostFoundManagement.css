@@ -1,0 +1,49 @@
+.lost-found-card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  position: relative;
+  transform: translateZ(0);
+  min-height: 450px;
+  transition: box-shadow 0.2s ease;
+}
+
+.lost-found-card:hover {
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+}
+
+.lost-found-grid {
+  min-height: 500px;
+}
+
+.lost-found-grid-item {
+  height: 100%;
+  margin-bottom: 20px;
+}
+
+/* Prevent layout shifts */
+.card-content {
+  flex-grow: 1;
+  padding: 16px;
+}
+
+.card-header {
+  padding: 16px;
+  background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);
+  color: white;
+}
+
+.card-actions {
+  padding: 16px;
+  display: flex;
+  justify-content: space-between;
+}
+
+/* Prevent image layout shifts */
+.card-media {
+  height: 140px;
+  object-fit: cover;
+}

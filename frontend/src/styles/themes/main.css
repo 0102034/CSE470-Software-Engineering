@@ -163,7 +163,7 @@ body::before {
 }
 
 .card {
-  background: rgba(255, 255, 255, 0.8);
+  background: rgb(255, 255, 255);
   backdrop-filter: blur(10px);
   border-radius: var(--border-radius-md);
   box-shadow: var(--shadow-md);
@@ -397,7 +397,7 @@ body::before {
   background: var(--gradient-profile);
   background-size: 200% 200%;
   animation: gradientShift 15s ease infinite;
-  position: relative;
+  position:relative;
 }
 
 .profile-page::before {

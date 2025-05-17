@@ -55,7 +55,18 @@ class User:
     
     def get_user_by_id(self, user_id):
         self._init_collection()
-        return self.collection.find_one({'_id': ObjectId(user_id)})
+        try:
+            # Try to convert to ObjectId
+            obj_id = ObjectId(user_id)
+            return self.collection.find_one({'_id': obj_id})
+        except Exception as e:
+            # If conversion fails, try using the string directly
+            user = self.collection.find_one({'_id': user_id})
+            if user:
+                return user
+                
+            # Try finding by string ID field if it exists
+            return self.collection.find_one({'id': user_id})
     
     def verify_password(self, user, password):
         return check_password_hash(user['password'], password)

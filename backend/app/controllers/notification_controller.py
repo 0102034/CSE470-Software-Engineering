@@ -48,7 +48,7 @@ class NotificationController:
             if not data.get('message'):
                 return jsonify({'error': 'Message is required'}), 400
             
-            if not data.get('page') or data['page'] not in ['home', 'ride_share', 'lost_found', 'marketplace']:
+            if not data.get('page') or data['page'] not in ['ride_share', 'lost_found', 'marketplace']:
                 return jsonify({'error': 'Valid page is required'}), 400
 
             notification_data = {
@@ -71,7 +71,7 @@ class NotificationController:
 
     def get_active_notifications(self, page):
         try:
-            if page not in ['home', 'ride_share', 'lost_found', 'marketplace']:
+            if page not in ['ride_share', 'lost_found', 'marketplace']:
                 return jsonify({'error': 'Invalid page'}), 400
 
             notifications = self.notification_model.get_active_notifications(page)
@@ -107,43 +107,3 @@ class NotificationController:
 
         except Exception as e:
             return jsonify({'error': str(e)}), 500
-            
-    @admin_required
-    def update_notification(self, notification_id):
-        try:
-            # Get admin info from token
-            from flask_jwt_extended import decode_token
-            from flask import current_app
-            
-            auth_header = request.headers.get('Authorization')
-            token = auth_header.split(' ')[1]
-            decoded = decode_token(token)
-            admin_email = decoded.get('sub')
-            
-            # Get request data
-            data = request.get_json()
-            if not data:
-                return jsonify({'error': 'No data provided'}), 400
-            
-            if not data.get('message'):
-                return jsonify({'error': 'Message is required'}), 400
-            
-            if not data.get('page') or data['page'] not in ['home', 'ride_share', 'lost_found', 'marketplace']:
-                return jsonify({'error': 'Valid page is required'}), 400
-
-            update_data = {
-                'message': data['message'],
-                'page': data['page'],
-                'updated_by': admin_email
-            }
-
-            success = self.notification_model.update_notification(notification_id, update_data)
-            if success:
-                return jsonify({'message': 'Notification updated successfully'}), 200
-            return jsonify({'error': 'Notification not found'}), 404
-
-        except ValueError as e:
-            return jsonify({'error': str(e)}), 400
-        except Exception as e:
-            current_app.logger.error(f'Error updating notification: {str(e)}')
-            return jsonify({'error': 'Failed to update notification'}), 500

@@ -289,7 +289,7 @@ def edit_user(user_id):
 @admin_bp.route('/statistics', methods=['GET', 'POST', 'OPTIONS'])
 @jwt_required()
 @admin_required
-@cache.cached(timeout=60)  # Cache statistics for 1 minute instead of 5 to show more recent items
+@cache.cached(timeout=30)  # Cache statistics for 30 seconds to ensure real-time synchronization
 def get_statistics():
     """Get platform statistics for admin dashboard"""
     try:
@@ -305,44 +305,102 @@ def get_statistics():
         # Count marketplace items - use marketplace_items collection instead of items
         total_items = db.marketplace_items.count_documents({})
 
+        # Lost & Found statistics
+        total_lost_found = db.lost_found_items.count_documents({})
+        lost_items = db.lost_found_items.count_documents({'item_type': 'lost'})
+        found_items = db.lost_found_items.count_documents({'item_type': 'found'})
+
         # Share ride statistics
         total_share_rides = db.share_rides.count_documents({})
         active_share_rides = db.share_rides.count_documents({'status': 'active'})
         inactive_share_rides = db.share_rides.count_documents({'status': {'$ne': 'active'}})
-        
-        # Get recent ride share posts
-        recent_share_rides = list(db.share_rides.find().sort('created_at', -1).limit(5))
-        # Convert ObjectId to string for recent share rides
-        for ride in recent_share_rides:
-            if '_id' in ride:
-                ride['_id'] = str(ride['_id'])
-            if 'user_id' in ride:
-                ride['user_id'] = str(ride['user_id'])
 
         # Get recent activities
         recent_bookings = list(db.bookings.find().sort('created_at', -1).limit(5))
         # Use marketplace_items collection instead of items
         recent_items = list(db.marketplace_items.find().sort('created_at', -1).limit(5))
+        # Get recent lost & found items
+        recent_lost_found = list(db.lost_found_items.find().sort('created_at', -1).limit(5))
         
         # Convert ObjectId to string
         for booking in recent_bookings:
-            booking['_id'] = str(booking['_id'])
-            booking['user_id'] = str(booking['user_id'])
-            booking['room_id'] = str(booking['room_id'])
+            try:
+                booking['_id'] = str(booking.get('_id', ''))
+                booking['user_id'] = str(booking.get('user_id', ''))
+                booking['room_id'] = str(booking.get('room_id', ''))
+            except Exception as e:
+                current_app.logger.error(f"Error processing booking: {str(e)}")
+                # Continue with next booking if there's an error
+                continue
             
         for item in recent_items:
-            item['_id'] = str(item['_id'])
-            item['user_id'] = str(item['user_id'])
-            
-            # Add user details to items
-            user = db.users.find_one({'_id': ObjectId(item['user_id'])})
-            if user:
-                item['seller'] = {
-                    'id': str(user['_id']),
-                    'name': user.get('name', 'Unknown'),
-                    'email': user.get('email', '')
-                }
+            try:
+                item['_id'] = str(item.get('_id', ''))
+                
+                # Safely handle user_id which might be missing or invalid
+                user_id = item.get('user_id', '')
+                if not user_id:
+                    # Try alternative fields that might contain user ID
+                    user_id = item.get('seller_id', '') or item.get('created_by', '')
+                
+                # Convert user_id to string if it exists
+                if user_id:
+                    item['user_id'] = str(user_id)
+                    
+                    # Add user details to items - with proper error handling
+                    try:
+                        user = db.users.find_one({'_id': ObjectId(user_id)})
+                        if user:
+                            item['seller'] = {
+                                'id': str(user['_id']),
+                                'name': user.get('name', 'Unknown'),
+                                'email': user.get('email', '')
+                            }
+                        else:
+                            # Fallback if user not found
+                            item['seller'] = {
+                                'id': str(user_id),
+                                'name': 'Unknown User',
+                                'email': ''
+                            }
+                    except Exception as e:
+                        current_app.logger.error(f"Error finding user for item: {str(e)}")
+                        # Fallback if ObjectId conversion fails
+                        item['seller'] = {
+                            'id': str(user_id) if user_id else '',
+                            'name': 'Unknown User',
+                            'email': ''
+                        }
+            except Exception as e:
+                current_app.logger.error(f"Error processing marketplace item: {str(e)}")
+                # Continue with next item if there's an error
+                continue
         
+        # Process recent lost & found items
+        for item in recent_lost_found:
+            try:
+                item['_id'] = str(item.get('_id', ''))
+                
+                # Safely handle user_id which might be missing or invalid
+                user_id = item.get('user_id', '')
+                if user_id:
+                    item['user_id'] = str(user_id)
+                    
+                    # Add user details to items - with proper error handling
+                    try:
+                        user = db.users.find_one({'_id': ObjectId(user_id)})
+                        if user:
+                            item['user'] = {
+                                'id': str(user['_id']),
+                                'name': user.get('name', 'Unknown'),
+                                'email': user.get('email', '')
+                            }
+                    except Exception as e:
+                        current_app.logger.error(f"Error finding user for lost & found item: {str(e)}")
+            except Exception as e:
+                current_app.logger.error(f"Error processing lost & found item: {str(e)}")
+                continue
+
         # Add cache control headers
         response = jsonify({
             'users': {
@@ -359,24 +417,148 @@ def get_statistics():
             'marketplace': {
                 'total_items': total_items
             },
-            'share_rides': {
-                'total': total_share_rides,
-                'active': active_share_rides,
-                'inactive': inactive_share_rides
+            'lost_found': {
+                'total': total_lost_found,
+                'lost': lost_items,
+                'found': found_items
             },
-            # Add rideshare property to match frontend expectations
             'rideshare': {
-                'total_posts': total_share_rides,
+                'total': total_share_rides,
                 'active': active_share_rides,
                 'inactive': inactive_share_rides
             },
             'recent_activities': {
                 'bookings': recent_bookings,
                 'items': recent_items,
-                'rideshare': recent_share_rides
+                'lost_found': recent_lost_found
             }
         })
         response.headers['Cache-Control'] = 'max-age=60'
         return response, 200
     except Exception as e:
-        return jsonify({'error': str(e)}), 500 
+        # Log the detailed error for debugging
+        current_app.logger.error(f"Error in get_statistics: {str(e)}")
+        
+        # Return a more graceful error response with fallback data
+        try:
+            # Try to return at least some basic statistics
+            basic_stats = {
+                'users': {
+                    'total': db.users.count_documents({}) if 'users' in db.list_collection_names() else 0,
+                    'verified': 0,
+                    'pending': 0
+                },
+                'marketplace': {
+                    'total_items': db.marketplace_items.count_documents({}) if 'marketplace_items' in db.list_collection_names() else 0
+                },
+                'lost_found': {
+                    'total': db.lost_found_items.count_documents({}) if 'lost_found_items' in db.list_collection_names() else 0,
+                    'lost': 0,
+                    'found': 0
+                },
+                'error_details': f"Some statistics could not be loaded: {str(e)}"
+            }
+            return jsonify(basic_stats), 200
+        except Exception as fallback_error:
+            # If even the fallback fails, return a simple error message
+            current_app.logger.error(f"Fallback error in get_statistics: {str(fallback_error)}")
+            return jsonify({
+                'error': 'Statistics temporarily unavailable',
+                'message': 'The system is experiencing technical difficulties. Please try again later.'
+            }), 500 
+
+
+@admin_bp.route('/lost-found/items', methods=['GET'])
+@jwt_required()
+@admin_required
+def get_lost_found_items():
+    """Get all lost & found items for admin management"""
+    try:
+        items = list(db.lost_found_items.find().sort('created_at', -1))
+        
+        # Convert ObjectId to string
+        for item in items:
+            item['_id'] = str(item['_id'])
+            if 'user_id' in item:
+                user_id = item['user_id']
+                item['user_id'] = str(user_id)
+                
+                # Add user details
+                try:
+                    user = db.users.find_one({'_id': ObjectId(user_id)})
+                    if user:
+                        item['user'] = {
+                            'id': str(user['_id']),
+                            'name': user.get('name', 'Unknown'),
+                            'email': user.get('email', '')
+                        }
+                except Exception as e:
+                    current_app.logger.error(f"Error finding user for lost & found item: {str(e)}")
+        
+        return jsonify(items), 200
+    except Exception as e:
+        current_app.logger.error(f"Error in get_lost_found_items: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_bp.route('/lost-found/items/<item_id>', methods=['PUT'])
+@jwt_required()
+@admin_required
+def update_lost_found_item(item_id):
+    """Update a lost & found item"""
+    try:
+        data = request.get_json()
+        
+        # Validate item exists
+        item = db.lost_found_items.find_one({'_id': ObjectId(item_id)})
+        if not item:
+            return jsonify({'error': 'Item not found'}), 404
+        
+        # Update fields
+        update_data = {'updated_at': datetime.utcnow()}
+        allowed_fields = ['title', 'description', 'location', 'date', 'status', 'images', 'category', 'item_type']
+        for field in allowed_fields:
+            if field in data:
+                update_data[field] = data[field]
+        
+        db.lost_found_items.update_one(
+            {'_id': ObjectId(item_id)},
+            {'$set': update_data}
+        )
+        
+        # Clear all related caches
+        cache.delete('view/api/lost-found/items')
+        cache.delete(f'view/api/lost-found/items/{item_id}')
+        cache.delete_many('view/api/lost-found/*')
+        cache.delete_many('view/api/admin/*')
+        
+        return jsonify({'message': 'Item updated successfully'}), 200
+    except Exception as e:
+        current_app.logger.error(f"Error in update_lost_found_item: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_bp.route('/lost-found/items/<item_id>', methods=['DELETE'])
+@jwt_required()
+@admin_required
+def delete_lost_found_item(item_id):
+    """Delete a lost & found item"""
+    try:
+        # Check if item exists
+        item = db.lost_found_items.find_one({'_id': ObjectId(item_id)})
+        if not item:
+            return jsonify({'error': 'Item not found'}), 404
+        
+        # Delete item
+        db.lost_found_items.delete_one({'_id': ObjectId(item_id)})
+        
+        # Clear all related caches
+        cache.delete('view/api/lost-found/items')
+        cache.delete(f'view/api/lost-found/items/{item_id}')
+        cache.delete_many('view/api/lost-found/*')
+        cache.delete_many('view/api/admin/*')
+        
+        return jsonify({'message': 'Item deleted successfully'}), 200
+    except Exception as e:
+        current_app.logger.error(f"Error in delete_lost_found_item: {str(e)}")
+        return jsonify({'error': str(e)}), 500

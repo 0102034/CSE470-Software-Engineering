@@ -116,7 +116,8 @@ const RideBooking = () => {
     is_free: false,
     fee_amount: '',
     payment_method: '',
-    payment_number: ''
+    payment_number: '',
+    contact_number: '' // New required field for contact number
   });
 
   // Chat dialog state is already declared above
@@ -210,6 +211,9 @@ const RideBooking = () => {
   const fetchSharedRides = async () => {
     setLoading(true);
     try {
+      // Clear any locally stored rides - we only want to use API data
+      localStorage.removeItem('sharedRides');
+      
       // Check for any deleted ride shares from localStorage
       const deletedRideSharesFromStorage = JSON.parse(localStorage.getItem('deletedRideShares') || '[]');
       
@@ -221,17 +225,50 @@ const RideBooking = () => {
         setDeletedPostIds(allDeletedRideIds);
       }
       
-      const response = await axios.get('http://localhost:5000/api/ride/share');
+      // Get rides only from the API using the new endpoint
+      let apiRides = [];
+      try {
+        const token = localStorage.getItem('token');
+        const headers = token ? { Authorization: `Bearer ${token}` } : {};
+        
+        const response = await axios.get('http://localhost:5000/api/ride-share', { headers });
+        
+        // Log the response to understand the data structure
+        console.log('Ride share API response:', response.data);
+        
+        // Process the data to ensure no duplicates by ID
+        const uniqueRides = {};
+        (response.data || []).forEach(ride => {
+          // Use the _id as a unique key
+          uniqueRides[ride._id] = ride;
+        });
+        
+        // Convert back to array
+        apiRides = Object.values(uniqueRides);
+      } catch (error) {
+        console.error('Error fetching rides from API:', error);
+        // If API fails, show an error message
+        setSnackbarMessage('Failed to load ride shares. Please try again later.');
+        setSnackbarSeverity('error');
+        setOpenSnackbar(true);
+        apiRides = [];
+      }
       
-      // Log the response to understand the data structure
-      console.log('Ride share API response:', response.data);
+      // Only use API rides, no local rides
+      const combinedRides = apiRides;
       
-      // Filter out expired rides based on date and time
+      // Filter out expired rides and rides with no available seats
       const currentDate = new Date();
       const currentDateStr = currentDate.toISOString().split('T')[0]; // YYYY-MM-DD format
       const currentTimeStr = currentDate.toTimeString().split(' ')[0].substring(0, 5); // HH:MM format
       
-      const validRides = response.data.filter(ride => {
+      const validRides = combinedRides.filter(ride => {
+        // First check if the ride has available seats
+        const availableSeats = parseInt(ride.seats_available || ride.available_seats || ride.seats || 0, 10);
+        if (availableSeats <= 0) {
+          console.log(`Filtering out ride ${ride._id} with no available seats`);
+          return false;
+        }
         // Filter out deleted posts - check both our state and localStorage
         if (allDeletedRideIds.includes(ride._id)) {
           console.log(`Filtering out deleted ride: ${ride._id}`);
@@ -262,7 +299,7 @@ const RideBooking = () => {
         return true; // Ride is valid (not expired)
       });
       
-      console.log(`Filtered ${response.data.length - validRides.length} rides (deleted or expired)`);
+      console.log(`Filtered ${combinedRides.length - validRides.length} rides (deleted or expired).`);
       
       // Process rides to ensure each has proper user information
       const processedRides = [];
@@ -345,17 +382,41 @@ const RideBooking = () => {
         return;
       }
       
-      const response = await axios.get(
-        'http://localhost:5000/api/ride/bookings',
-        {
-          headers: {
-            Authorization: `Bearer ${token}`
+      // Try to get bookings from the ride_bookings collection
+      let bookingsData = [];
+      try {
+        console.log('Fetching ride bookings for user:', userId);
+        const response = await axios.get(
+          `http://localhost:5000/api/ride-share/user-bookings/${userId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`
+            }
           }
+        );
+        console.log('Ride bookings response:', response.data);
+        bookingsData = response.data || [];
+      } catch (bookingError) {
+        console.error('Error fetching ride bookings:', bookingError);
+        // If the new endpoint fails, try the old one as fallback
+        try {
+          const fallbackResponse = await axios.get(
+            'http://localhost:5000/api/ride/bookings',
+            {
+              headers: {
+                Authorization: `Bearer ${token}`
+              }
+            }
+          );
+          bookingsData = fallbackResponse.data || [];
+        } catch (fallbackError) {
+          console.error('Error fetching from fallback endpoint:', fallbackError);
+          bookingsData = [];
         }
-      );
+      }
       
       // Filter bookings to show only those belonging to the logged-in user
-      const userBookings = response.data.filter(booking => {
+      const userBookings = bookingsData.filter(booking => {
         return booking.user_id === userId || booking.booker_id === userId;
       });
       
@@ -482,8 +543,6 @@ const RideBooking = () => {
         setPaymentDetails({
           method: selectedRide.payment_method || '',
           amount: totalAmount,
-          perSeatAmount: perSeatAmount,
-          seats: newBooking.seats,
           paymentNumber: selectedRide.payment_number || ''
         });
         setOpenPaymentDialog(true);
@@ -500,9 +559,13 @@ const RideBooking = () => {
   const processBooking = async (paymentMethod = null, transactionId = null) => {
     try {
       const token = localStorage.getItem('token');
+      // Ensure seats is a valid number
+      const seatsToBook = parseInt(newBooking.seats, 10) || 1;
+      console.log('Processing booking with seats:', seatsToBook);
+      
       // Create booking data with seats, payment method, and transaction ID
       const bookingData = {
-        seats: newBooking.seats,
+        seats: seatsToBook,
         payment_method: paymentMethod || newBooking.payment_method,
         transaction_id: transactionId,
         pickup_location: newBooking.pickup_location,
@@ -513,17 +576,24 @@ const RideBooking = () => {
       // Store the ride that's being booked to add to bookings
       const bookedRide = {...selectedRide};
       
+      // Ensure we have valid seat counts
+      const availableSeats = parseInt(selectedRide.seats_available || selectedRide.available_seats || selectedRide.seats || 0, 10);
+      console.log('Available seats:', availableSeats, 'Seats to book:', seatsToBook);
+      
       // Remove the ride from available rides if all seats are booked
-      if (selectedRide && selectedRide.seats_available <= newBooking.seats) {
+      if (selectedRide && availableSeats <= seatsToBook) {
         // Remove the ride from the displayed list
         setSharedRides(prevRides => prevRides.filter(ride => ride._id !== selectedRide._id));
       } else if (selectedRide) {
         // Update the available seats count
         setSharedRides(prevRides => prevRides.map(ride => {
           if (ride._id === selectedRide._id) {
+            const newAvailableSeats = availableSeats - seatsToBook;
             return {
               ...ride,
-              seats_available: ride.seats_available - newBooking.seats
+              seats_available: newAvailableSeats,
+              available_seats: newAvailableSeats,
+              seats: newAvailableSeats
             };
           }
           return ride;
@@ -545,16 +615,20 @@ const RideBooking = () => {
         payment_method: ''
       });
       
-      // Send API request
+      // Send API request to the new booking endpoint
+      console.log('Sending booking request for ride:', selectedRide._id, 'with data:', bookingData);
       const response = await axios.post(
-        `http://localhost:5000/api/ride/book/${selectedRide._id}`, 
+        `http://localhost:5000/api/ride-share/book/${selectedRide._id}`, 
         bookingData,
         {
           headers: {
-            Authorization: `Bearer ${token}`
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
           }
         }
       );
+      
+      console.log('Booking response:', response.data);
       
       // Add the booking to the bookings list immediately
       const newBookingData = response.data.booking || {
@@ -598,7 +672,7 @@ const RideBooking = () => {
   const handleCreateShareRide = async () => {
     try {
       // Determine required fields based on whether it's a free or paid ride
-      let requiredFields = ['from_location', 'to_location', 'date', 'time', 'vehicle_type', 'seats_available'];
+      let requiredFields = ['from_location', 'to_location', 'date', 'time', 'vehicle_type', 'seats_available', 'contact_number'];
       
       // Add payment-related required fields for paid rides
       if (!newShareRide.is_free) {
@@ -624,10 +698,28 @@ const RideBooking = () => {
       
       // Prepare data for API request
       const rideData = {
+        // Include all fields with both frontend and backend naming conventions
         ...newShareRide,
-        price: newShareRide.is_free ? 0 : newShareRide.fee_amount, // For backward compatibility
+        // Backend field names
+        from_location: newShareRide.from_location || newShareRide.from,
+        to_location: newShareRide.to_location || newShareRide.to,
+        departure_date: newShareRide.departure_date || newShareRide.date,
+        departure_time: newShareRide.departure_time || newShareRide.time,
+        available_seats: newShareRide.available_seats || newShareRide.seats_available || newShareRide.seats,
+        vehicle_type: newShareRide.vehicle_type || newShareRide.vehicleType,
+        contact_info: newShareRide.contact_info || newShareRide.contactInfo,
+        price: newShareRide.is_free ? 0 : (newShareRide.fee_amount || newShareRide.price || 0),
+        // Frontend field names
+        from: newShareRide.from_location || newShareRide.from,
+        to: newShareRide.to_location || newShareRide.to,
+        date: newShareRide.departure_date || newShareRide.date,
+        time: newShareRide.departure_time || newShareRide.time,
+        seats: newShareRide.available_seats || newShareRide.seats_available || newShareRide.seats,
+        vehicleType: newShareRide.vehicle_type || newShareRide.vehicleType,
+        contactInfo: newShareRide.contact_info || newShareRide.contactInfo,
+        // User information
         user_id: user._id || user.id,
-        user_name: `${user.first_name || ''} ${user.last_name || ''}`.trim(),
+        user_name: `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.name || 'Unknown User',
         user_email: user.email
       };
       
@@ -661,15 +753,18 @@ const RideBooking = () => {
         
         // Now start the actual update process in the background
         try {
-          await axios.put(
-            `http://localhost:5000/api/ride/share/${formCopy._id}`,
+          console.log('Updating ride share post with ID:', formCopy._id);
+          const response = await axios.put(
+            `http://localhost:5000/api/ride-share/${formCopy._id}`,
             rideData,
             {
               headers: {
-                Authorization: `Bearer ${token}`
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json'
               }
             }
           );
+          console.log('Update response:', response.data);
         } catch (error) {
           console.error('Error updating ride share post:', error);
           
@@ -689,6 +784,9 @@ const RideBooking = () => {
         const tempRide = {
           _id: tempId,
           ...rideData,
+          status: 'active',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
           user: {
             _id: user._id || user.id,
             name: rideData.user_name,
@@ -706,12 +804,30 @@ const RideBooking = () => {
         
         // Now start the actual creation process in the background
         try {
+          // Ensure the user ID is properly set in the request data
+          const userData = JSON.parse(localStorage.getItem('user') || '{}');
+          const userId = userData._id || userData.id;
+          
+          if (!userId) {
+            console.error('No user ID found in localStorage');
+            throw new Error('User ID not found');
+          }
+          
+          // Make sure user ID is properly formatted in the request
+          const finalRideData = {
+            ...rideData,
+            user_id: userId,
+          };
+          
+          console.log('Sending ride share data to backend:', finalRideData);
+          
           const response = await axios.post(
-            'http://localhost:5000/api/ride/share',
-            rideData,
+            'http://localhost:5000/api/ride-share',
+            finalRideData,
             {
               headers: {
-                Authorization: `Bearer ${token}`
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json'
               }
             }
           );
@@ -724,15 +840,29 @@ const RideBooking = () => {
               }
               return ride;
             }));
+            
+            // Also save to localStorage for persistence
+            const storedRides = JSON.parse(localStorage.getItem('sharedRides') || '[]');
+            const updatedRide = { ...tempRide, _id: response.data.post_id };
+            localStorage.setItem('sharedRides', JSON.stringify([updatedRide, ...storedRides]));
           }
         } catch (error) {
           console.error('Error creating ride share post:', error);
           
-          // Remove the temporary ride if the API call fails
-          setSharedRides(prevRides => prevRides.filter(ride => ride._id !== tempId));
+          // Don't remove the temporary ride, just mark it as local
+          setSharedRides(prevRides => prevRides.map(ride => {
+            if (ride._id === tempId) {
+              return { ...ride, isLocal: true };
+            }
+            return ride;
+          }));
           
-          setSnackbarMessage('Failed to create post: ' + (error.response?.data?.error || error.message));
-          setSnackbarSeverity('error');
+          // Save to localStorage anyway for persistence
+          const storedRides = JSON.parse(localStorage.getItem('sharedRides') || '[]');
+          localStorage.setItem('sharedRides', JSON.stringify([{ ...tempRide, isLocal: true }, ...storedRides]));
+          
+          setSnackbarMessage('Post saved locally. It will sync when you reconnect.');
+          setSnackbarSeverity('warning');
           setOpenSnackbar(true);
         }
       }
@@ -752,18 +882,9 @@ const RideBooking = () => {
         payment_method: '',
         payment_number: ''
       });
-      
-      // Show modern success message with Snackbar
-      setSnackbarMessage('Ride share created successfully!');
-      setSnackbarSeverity('success');
-      setOpenSnackbar(true);
-      
-      // Refresh rides
-      fetchSharedRides();
-      
     } catch (error) {
-      console.error('Error creating ride share:', error);
-      setSnackbarMessage('Failed to create ride share. ' + (error.response?.data?.error || error.message));
+      console.error('Error in handleCreateShareRide:', error);
+      setSnackbarMessage('An unexpected error occurred. Please try again.');
       setSnackbarSeverity('error');
       setOpenSnackbar(true);
     }
@@ -777,6 +898,16 @@ const RideBooking = () => {
       }
       
       const token = localStorage.getItem('token');
+      
+      // Get the ride details from the selected booking before sending the request
+      const canceledRideId = selectedBooking?.ride_id;
+      const canceledSeats = selectedBooking?.seats || selectedBooking?.seats_booked || 1;
+      
+      // Close dialog and reset states immediately for better UX
+      setOpenCancelDialog(false);
+      setCancellationReason('');
+      setOtherReason('');
+      
       // First, immediately update the UI to provide instant feedback
       // Mark the booking as cancelled in the UI
       setBookings(prevBookings => prevBookings.map(booking => {
@@ -788,15 +919,6 @@ const RideBooking = () => {
         }
         return booking;
       }));
-      
-      // Get the ride details from the canceled booking before sending the request
-      const canceledRideId = selectedBooking.ride_id;
-      const canceledSeats = selectedBooking.seats || selectedBooking.seats_booked || 1;
-      
-      // Close dialog and reset states immediately for better UX
-      setOpenCancelDialog(false);
-      setCancellationReason('');
-      setOtherReason('');
       
       // Send cancellation request
       const response = await axios.post(
@@ -814,53 +936,35 @@ const RideBooking = () => {
       setSnackbarSeverity('success');
       setOpenSnackbar(true);
       
-      // Update the UI to show the ride again in the Available Rides tab
+      // Update the ride in the available rides list if it exists
       if (canceledRideId) {
-        // Check if the ride exists in the current list
-        const rideExists = sharedRides.some(ride => ride._id === canceledRideId);
-        
-        if (!rideExists) {
-          // Fetch the specific ride to add it back to the list
-          try {
-            const rideResponse = await axios.get(
-              `http://localhost:5000/api/ride/share/${canceledRideId}`,
-              {
-                headers: {
-                  Authorization: `Bearer ${token}`
-                }
+        setSharedRides(prevRides => {
+          // Check if the ride exists in the current list
+          const rideExists = prevRides.some(ride => ride._id === canceledRideId);
+          
+          if (rideExists) {
+            // Update the available seats count for the existing ride
+            return prevRides.map(ride => {
+              if (ride._id === canceledRideId) {
+                return {
+                  ...ride,
+                  seats_available: (parseInt(ride.seats_available) || 0) + canceledSeats,
+                  seats: (parseInt(ride.seats) || 0) + canceledSeats // Update both fields for compatibility
+                };
               }
-            );
-            
-            if (rideResponse.data) {
-              // Add the ride back to the list with updated seats available
-              const updatedRide = {
-                ...rideResponse.data,
-                seats_available: (rideResponse.data.seats_available || 0) + canceledSeats
-              };
-              setSharedRides(prevRides => [updatedRide, ...prevRides]);
-              
-              // Switch to Available Rides tab to show the ride is available again
-              setTabValue(0);
-            }
-          } catch (rideError) {
-            console.error('Error fetching canceled ride:', rideError);
+              return ride;
+            });
+          } else {
+            // Fetch the ride to add it back to the list
+            fetchSharedRides();
+            return prevRides;
           }
-        } else {
-          // Update the available seats count for the existing ride
-          setSharedRides(prevRides => prevRides.map(ride => {
-            if (ride._id === canceledRideId) {
-              return {
-                ...ride,
-                seats_available: ride.seats_available + canceledSeats
-              };
-            }
-            return ride;
-          }));
-        }
+        });
       }
       
-      // Refresh bookings list
-      fetchBookings();
+      // Refresh the bookings list by refetching all data
+      // We'll use the existing fetchSharedRides function which we already know exists
+      fetchSharedRides();
     } catch (error) {
       console.error('Error cancelling booking:', error);
       setSnackbarMessage('Failed to cancel booking. ' + (error.response?.data?.error || error.message));
@@ -974,15 +1078,27 @@ const RideBooking = () => {
   };
 
   const openBookingDialogForRide = (ride) => {
-    setSelectedRide(ride);
+    console.log('Opening booking dialog for ride:', ride);
+    // Ensure we have a valid ride object with all required fields
+    const safeRide = {
+      ...ride,
+      seats_available: parseInt(ride.seats_available || ride.available_seats || ride.seats || 1, 10),
+      from_location: ride.from_location || ride.from,
+      to_location: ride.to_location || ride.to,
+      date: ride.date || ride.departure_date,
+      time: ride.time || ride.departure_time
+    };
+    
+    setSelectedRide(safeRide);
     setNewBooking({
       ...newBooking,
-      ride_id: ride._id,
-      pickup_location: ride.from_location,
-      dropoff_location: ride.to_location,
-      date: ride.date || ride.departure_date,
-      time: ride.time || ride.departure_time,
-      payment_method: ride.payment_method || ''
+      ride_id: safeRide._id,
+      pickup_location: safeRide.from_location,
+      dropoff_location: safeRide.to_location,
+      date: safeRide.date,
+      time: safeRide.time,
+      seats: 1, // Default to 1 seat
+      payment_method: safeRide.payment_method || ''
     });
     setOpenBookingDialog(true);
   };
@@ -1378,7 +1494,7 @@ const RideBooking = () => {
                     )}
                     <CardContent>
                       <Typography variant="h6" gutterBottom>
-                        {booking.ride?.from_location || booking.from_location || 'Unknown'} to {booking.ride?.to_location || booking.to_location || 'Unknown'}
+                        {booking.title || `${booking.ride?.from_location || booking.from_location || booking.ride_details?.from_location || booking.ride_details?.from || 'Unknown'} to ${booking.ride?.to_location || booking.to_location || booking.ride_details?.to_location || booking.ride_details?.to || 'Unknown'}`}
                       </Typography>
                       <Divider sx={{ my: 1 }} />
                       
@@ -1429,6 +1545,21 @@ const RideBooking = () => {
                             </Typography>
                           </Grid>
                         )}
+                        
+                        {/* Creator Contact Information */}
+                        <Grid item xs={12}>
+                          <Box sx={{ mt: 2, p: 1, bgcolor: 'rgba(0, 0, 0, 0.03)', borderRadius: 1 }}>
+                            <Typography variant="subtitle2" gutterBottom>
+                              Ride Creator Contact Information
+                            </Typography>
+                            <Typography variant="body2">
+                              <strong>Name:</strong> {booking.creator_name || booking.ride_details?.user_name || 'Unknown'}
+                            </Typography>
+                            <Typography variant="body2">
+                              <strong>Phone:</strong> {booking.creator_phone || booking.creator_contact || booking.ride_details?.contact_info || booking.ride_details?.contactInfo || 'Not provided'}
+                            </Typography>
+                          </Box>
+                        </Grid>
                       </Grid>
                     </CardContent>
                     <CardActions>
@@ -1696,6 +1827,19 @@ const RideBooking = () => {
                 )}
               </>
             )}
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                required
+                label="Contact Number"
+                name="contact_number"
+                value={newShareRide.contact_number || ''}
+                onChange={handleShareRideChange}
+                placeholder="Enter your phone number"
+                helperText="This will be shown to riders who book your ride"
+              />
+            </Grid>
+            
             <Grid item xs={12}>
               <TextField
                 fullWidth

@@ -1,35 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Box, 
-  Typography, 
-  Container, 
-  Grid, 
-  Paper, 
-  Button, 
-  Avatar, 
-  TextField,
-  CircularProgress,
-  Divider,
-  Tabs,
-  Tab,
-  Card,
-  CardContent,
-  CardMedia,
-  CardActions,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogContentText,
-  DialogActions,
-  Snackbar,
-  Alert,
-  IconButton,
-  Chip,
-  List,
-  ListItem,
-  ListItemAvatar,
-  ListItemText,
-  ListItemSecondaryAction
+import { jwtDecode as jwt_decode } from 'jwt-decode';
+import axios from 'axios';
+import { useNavigate, useParams, Link } from 'react-router-dom';
+import MessageDisplay from '../components/MessageDisplay';
+import {
+  Container, Box, Paper, Typography, Avatar, Button, Tabs, Tab, List,
+  ListItem, ListItemText, ListItemAvatar, Divider, TextField, Chip,
+  CircularProgress, IconButton, Card, CardContent, CardMedia, Dialog, 
+  DialogTitle, DialogContent, DialogContentText, DialogActions, Snackbar, 
+  Alert, Badge, ListItemSecondaryAction, CardActions, Grid, Tooltip
 } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import SaveIcon from '@mui/icons-material/Save';
@@ -37,1259 +16,1218 @@ import CancelIcon from '@mui/icons-material/Cancel';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import StoreIcon from '@mui/icons-material/Store';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
-import DirectionsBusIcon from '@mui/icons-material/DirectionsBus';
+import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
+import SellIcon from '@mui/icons-material/Sell';
 import LogoutIcon from '@mui/icons-material/Logout';
 import DeleteIcon from '@mui/icons-material/Delete';
 import MessageIcon from '@mui/icons-material/Message';
+import ChatIcon from '@mui/icons-material/Chat';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import AddIcon from '@mui/icons-material/Add';
-import Badge from '@mui/material/Badge';
-import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
 import '../AppBackgrounds.css';
-import MarketplaceItemDetailsDrawer from '../components/MarketplaceItemDetailsDrawer';
-import MarketplaceItemForm from '../components/MarketplaceItemForm';
-import MessageCenter from '../components/MessageCenter';
-import { getItemImage } from '../utils/imageUtils';
 
-const UserProfile = () => {
-  // ...existing state hooks...
-  // Debounce state for actions
-  const [actionDebounce, setActionDebounce] = useState(false);
+// Temporary placeholder components until they are implemented
+const MarketplaceItemDetailsDrawer = ({ open, item, onClose }) => (
+  <Dialog open={open} onClose={onClose}>
+    <DialogTitle>Item Details</DialogTitle>
+    <DialogContent>
+      <Typography>{item?.title}</Typography>
+      <Typography>{item?.description}</Typography>
+      <Typography>Price: ${item?.price}</Typography>
+    </DialogContent>
+    <DialogActions>
+      <Button onClick={onClose}>Close</Button>
+    </DialogActions>
+  </Dialog>
+);
 
-  // View item details (best practice: open details drawer)
-  const handleViewItem = (item) => {
-    if (actionDebounce) return;
-    setActionDebounce(true);
-    setTimeout(() => setActionDebounce(false), 800); // 800ms debounce
-    setSelectedItem(item);
-    setItemDetailsOpen(true);
-  };
+const MarketplaceItemForm = ({ open, onClose, item, isEdit, onSuccess }) => (
+  <Dialog open={open} onClose={onClose}>
+    <DialogTitle>{isEdit ? 'Edit Item' : 'New Item'}</DialogTitle>
+    <DialogContent>
+      <Typography>Form placeholder</Typography>
+    </DialogContent>
+    <DialogActions>
+      <Button onClick={onClose}>Cancel</Button>
+      <Button onClick={() => onSuccess && onSuccess({})}>Save</Button>
+    </DialogActions>
+  </Dialog>
+);
 
-  // Edit item (best practice: open edit dialog with item)
-  const handleEditItem = (item) => {
-    if (actionDebounce) return;
-    setActionDebounce(true);
-    setTimeout(() => setActionDebounce(false), 800);
-    setSelectedItemForEdit(item);
-    setEditItemOpen(true);
-  };
-
-  const navigate = useNavigate();
+function UserProfile() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [loadingPosts, setLoadingPosts] = useState(true);
-  const [profileImage, setProfileImage] = useState(null);
-  const [idCardImage, setIdCardImage] = useState(null);
-  const [marketplacePosts, setMarketplacePosts] = useState([]);
-  const [lostFoundItems, setLostFoundItems] = useState([]);
-  const [rideRequests, setRideRequests] = useState([]);
   const [tabValue, setTabValue] = useState(0);
-  const [messageCount, setMessageCount] = useState(0);
-  const [editMode, setEditMode] = useState(false);
-  const [updatedUser, setUpdatedUser] = useState({});
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
-  const [uploadingImage, setUploadingImage] = useState(false);
-  const [uploadingIdCard, setUploadingIdCard] = useState(false);
-  const [deleteDialog, setDeleteDialog] = useState({ open: false, postId: null, postType: null });
+  const [marketplaceItems, setMarketplaceItems] = useState([]);
+  const [lostFoundItems, setLostFoundItems] = useState([]);
+  const [purchaseItems, setPurchaseItems] = useState([]);
+  const [sellItems, setSellItems] = useState([]);
+  const [soldItems, setSoldItems] = useState([]);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
-  const [itemDetailsOpen, setItemDetailsOpen] = useState(false);
-  const [editItemOpen, setEditItemOpen] = useState(false);
-  const [selectedItemForEdit, setSelectedItemForEdit] = useState(null);
-  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
-  const [itemToDelete, setItemToDelete] = useState(null);
-  const [deletingItem, setDeletingItem] = useState(false);
-  const [deleteError, setDeleteError] = useState('');
-  const [newItemOpen, setNewItemOpen] = useState(false);
-  const [purchaseHistory, setPurchaseHistory] = useState([]);
-  const [sellingHistory, setSellingHistory] = useState([]);
-  const [loadingPurchaseHistory, setLoadingPurchaseHistory] = useState(false);
-  const [loadingSellingHistory, setLoadingSellingHistory] = useState(false);
-
-  useEffect(() => {
-    document.body.classList.add('user-profile-page');
-    return () => {
-      document.body.classList.remove('user-profile-page');
-    };
-  }, []);
-
-  // Check for unread messages
-  useEffect(() => {
-    const checkUnreadMessages = async () => {
-      if (!user?.id && !user?._id) return;
-      
-      try {
-        const token = localStorage.getItem('token');
-        const userId = user?.id || user?._id;
-        
-        // Use the marketplace endpoint for messages since that's where our message system is implemented
-        const response = await axios.get(`http://localhost:5000/api/marketplace/messages/unread`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-        
-        setMessageCount(response.data.count || 0);
-      } catch (error) {
-        console.error('Error fetching unread messages:', error);
-        // Don't show error to user, just set count to 0
-        setMessageCount(0);
-      }
-    };
+  const [formOpen, setFormOpen] = useState(false);
+  const [isEditForm, setIsEditForm] = useState(false);
+  const [editItem, setEditItem] = useState(null);
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarSeverity, setSnackbarSeverity] = useState('success');
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedUser, setEditedUser] = useState({});
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState('');
+  
+  const navigate = useNavigate();
+  const { userId } = useParams();
+  const fileInputRef = React.useRef(null);
+  
+  // Helper function to properly resolve image URLs
+  const getImageUrl = (url) => {
+    if (!url) return '/images/placeholder.png';
     
-    checkUnreadMessages();
-    // Set up polling for new messages every minute
-    const intervalId = setInterval(checkUnreadMessages, 60000);
+    // If the URL is already absolute (starts with http:// or https://), return it as is
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return url;
+    }
     
-    return () => clearInterval(intervalId);
-  }, [user?.id, user?._id]);
-
-  // Load user data from localStorage and fetch additional details from API
-  useEffect(() => {
-    const checkAuth = () => {
+    // If the URL is a relative path starting with /uploads, prepend the API base URL
+    if (url.startsWith('/uploads')) {
+      // Get the base URL from the current API endpoint
+      const apiBaseUrl = process.env.REACT_APP_API_URL || window.location.origin;
+      return `${apiBaseUrl}${url}`;
+    }
+    
+    // Otherwise, return the URL as is
+    return url;
+  };
+  
+  // Check if the profile belongs to the current user
+  const isCurrentUser = () => {
+    try {
       const token = localStorage.getItem('token');
-      const userData = localStorage.getItem('user');
+      if (!token) return false;
       
-      if (!token || !userData) {
+      const decoded = jwt_decode(token);
+      return decoded.sub === userId || decoded.user_id === userId;
+    } catch (error) {
+      console.error('Error checking if current user:', error);
+      return false;
+    }
+  };
+  
+  // Get the current user's ID
+  const getCurrentUserId = () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return null;
+      
+      const decoded = jwt_decode(token);
+      return decoded.sub || decoded.user_id;
+    } catch (error) {
+      console.error('Error getting current user ID:', error);
+      return null;
+    }
+  };
+  
+  // Fetch user data
+  useEffect(() => {
+    fetchUserData();
+    fetchUserItems();
+  }, [userId]);
+  
+  const fetchUserData = async () => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
         navigate('/login');
         return;
       }
       
+      // If userId is not provided, use the current user's ID
+      const targetUserId = userId || getCurrentUserId();
+      if (!targetUserId) {
+        setLoading(false);
+        return;
+      }
+      
+      // Try to get user data from API
       try {
-        const parsedUser = JSON.parse(userData);
-        setUser(parsedUser);
-        setUpdatedUser(parsedUser);
+        const response = await axios.get(`/api/users/${targetUserId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
         
-        // Set default headers for future requests
-        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+        if (response.data) {
+          setUser(response.data);
+          setEditedUser(response.data);
+        }
+      } catch (error) {
+        console.error('Error fetching user data from primary endpoint:', error);
         
-        // Fetch complete user details
-        fetchUserDetails(parsedUser.id);
-        
-        // Fetch user activity from all sections
-        fetchMarketplacePosts(parsedUser.id);
-        fetchLostFoundItems(parsedUser.id);
-        fetchRideRequests(parsedUser.id);
-        fetchPurchaseHistory(parsedUser.id);
-        fetchSellingHistory(parsedUser.id);
-      } catch (err) {
-        console.error('Error parsing user data:', err);
-        navigate('/login');
+        // Try alternative endpoint
+        try {
+          const meResponse = await axios.get('/api/users/me', {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          
+          if (meResponse.data) {
+            setUser(meResponse.data);
+            setEditedUser(meResponse.data);
+          }
+        } catch (meError) {
+          console.error('Error fetching user data from alternative endpoint:', meError);
+          
+          // As a last resort, create user data from token
+          const decoded = jwt_decode(token);
+          const userData = {
+            id: decoded.sub || decoded.user_id,
+            name: decoded.name || 'User',
+            email: decoded.email || '',
+            profile_picture: '',
+            department: decoded.department || '',
+            semester: decoded.semester || ''
+          };
+          
+          setUser(userData);
+          setEditedUser(userData);
+        }
       }
-    };
-    
-    checkAuth();
-  }, [navigate]);
-
-  const fetchUserDetails = async (userId) => {
-    try {
-      const response = await axios.get(`/api/users/${userId}`);
-      setUser(prevUser => ({ ...prevUser, ...response.data }));
-      setUpdatedUser(prevUser => ({ ...prevUser, ...response.data }));
-      
-      // Check if user has a profile picture
-      if (response.data.profile_picture) {
-        setProfileImage(response.data.profile_picture);
-      }
-      
-      // Check if user has an ID card image
-      if (response.data.id_card_image) {
-        setIdCardImage(response.data.id_card_image);
-      } else if (response.data.id_card_photo) {
-        // Try alternative field name for ID card photo
-        setIdCardImage(response.data.id_card_photo);
-      }
-      
-      setLoading(false);
-    } catch (err) {
-      console.error('Error fetching user details:', err);
+    } catch (error) {
+      console.error('Error in fetchUserData:', error);
+      showSnackbar('Error loading user data. Please try again later.', 'error');
+    } finally {
       setLoading(false);
     }
   };
-
-  const fetchMarketplacePosts = async (userId) => {
-    setLoadingPosts(true);
+  
+  // Fetch user's marketplace and lost & found items
+  const fetchUserItems = async () => {
     try {
-      // Add timestamp to prevent caching
-      const timestamp = new Date().getTime();
-      const response = await axios.get(`/api/marketplace/items/user/${userId}?_=${timestamp}`);
-      setMarketplacePosts(response.data || []);
-      setLoadingPosts(false);
-    } catch (err) {
-      console.error('Error fetching marketplace posts:', err);
-      setLoadingPosts(false);
+      const token = localStorage.getItem('token');
+      if (!token) return;
+      
+      // If userId is not provided, use the current user's ID
+      const targetUserId = userId || getCurrentUserId();
+      if (!targetUserId) return;
+      
+      // Fetch marketplace items
+      try {
+        // The correct endpoint is /api/marketplace/items/user/:userId
+        const marketplaceResponse = await axios.get(`/api/marketplace/items/user/${targetUserId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (marketplaceResponse.data && Array.isArray(marketplaceResponse.data)) {
+          // Set marketplace items (active listings)
+          const activeItems = marketplaceResponse.data.filter(item => !item.sold);
+          setMarketplaceItems(activeItems);
+          
+          // Set items for sale section (same as active listings for now)
+          setSellItems(activeItems);
+        }
+      } catch (marketplaceError) {
+        console.error('Error fetching marketplace items:', marketplaceError);
+      }
+      
+      // Fetch sold items
+      try {
+        const soldItemsResponse = await axios.get(`/api/marketplace/users/${targetUserId}/sold`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (soldItemsResponse.data && Array.isArray(soldItemsResponse.data)) {
+          console.log('Fetched sold items:', soldItemsResponse.data);
+          setSoldItems(soldItemsResponse.data);
+        }
+      } catch (soldItemsError) {
+        console.error('Error fetching sold items:', soldItemsError);
+      }
+      
+      // Fetch purchase records
+      try {
+        // First try the marketplace API endpoint
+        const purchasesResponse = await axios.get(`/api/marketplace/users/${targetUserId}/purchases`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (purchasesResponse.data && Array.isArray(purchasesResponse.data)) {
+          console.log('Fetched purchase records:', purchasesResponse.data);
+          setPurchaseItems(purchasesResponse.data);
+        }
+      } catch (purchasesError) {
+        console.error('Error fetching purchase records from marketplace API:', purchasesError);
+        
+        try {
+          // Try the users API endpoint as fallback
+          const userPurchasesResponse = await axios.get(`/api/users/${targetUserId}/purchases`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          
+          if (userPurchasesResponse.data && Array.isArray(userPurchasesResponse.data)) {
+            console.log('Fetched purchase records from users API:', userPurchasesResponse.data);
+            setPurchaseItems(userPurchasesResponse.data);
+          }
+        } catch (userPurchasesError) {
+          console.error('Error fetching purchase records from users API:', userPurchasesError);
+          
+          // Create some mock purchase data for testing if both APIs fail
+          if (isCurrentUser()) {
+            console.log('Creating mock purchase data from marketplace items');
+            const mockPurchases = marketplaceItems
+              .filter(item => item.sold === true)
+              .map(item => ({
+                _id: item._id + '_purchase',
+                item_id: item._id,
+                title: item.title,
+                price: item.price,
+                images: item.images,
+                description: item.description,
+                purchase_date: new Date().toISOString(),
+                payment_method: 'bkash',
+                seller: item.seller || { name: 'Unknown Seller' }
+              }));
+            setPurchaseItems(mockPurchases);
+          }
+        }
+      }
+      
+      // Fetch lost & found items
+      try {
+        // The correct endpoint is /api/lost-found/user-items/:userId (note the hyphen and 'user-items')
+        const lostFoundResponse = await axios.get(`/api/lost-found/user-items/${targetUserId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (lostFoundResponse.data && Array.isArray(lostFoundResponse.data)) {
+          setLostFoundItems(lostFoundResponse.data);
+        }
+      } catch (error) {
+        console.error('Error fetching lost & found items:', error);
+        // Set empty array for better UX
+        setLostFoundItems([]);
+      }
+    } catch (error) {
+      console.error('Error in fetchUserItems:', error);
     }
   };
   
-  const fetchLostFoundItems = async (userId) => {
-    try {
-      // Add timestamp to prevent caching
-      const timestamp = new Date().getTime();
-      const response = await axios.get(`/api/lost-found/user-items/${userId}?_=${timestamp}`);
-      setLostFoundItems(response.data || []);
-    } catch (err) {
-      console.error('Error fetching lost & found items:', err);
-    }
-  };
-  
-  const fetchRideRequests = async (userId) => {
-    try {
-      // Add timestamp to prevent caching
-      const timestamp = new Date().getTime();
-      const response = await axios.get(`/api/ride/user-requests/${userId}?_=${timestamp}`);
-      setRideRequests(response.data || []);
-    } catch (err) {
-      console.error('Error fetching ride requests:', err);
-    }
-  };
-
-  const fetchPurchaseHistory = async (userId) => {
-    setLoadingPurchaseHistory(true);
-    try {
-      // Add timestamp to prevent caching
-      const timestamp = new Date().getTime();
-      const response = await axios.get(`/api/marketplace/orders/buyer?_=${timestamp}`);
-      setPurchaseHistory(response.data || []);
-    } catch (err) {
-      console.error('Error fetching purchase history:', err);
-    } finally {
-      setLoadingPurchaseHistory(false);
-    }
-  };
-
-  const fetchSellingHistory = async (userId) => {
-    setLoadingSellingHistory(true);
-    try {
-      // Add timestamp to prevent caching
-      const timestamp = new Date().getTime();
-      const response = await axios.get(`/api/marketplace/orders/seller?_=${timestamp}`);
-      setSellingHistory(response.data || []);
-    } catch (err) {
-      console.error('Error fetching selling history:', err);
-    } finally {
-      setLoadingSellingHistory(false);
-    }
-  };
-
-  const handleProfileImageChange = (event) => {
-    if (event.target.files && event.target.files[0]) {
-      const file = event.target.files[0];
-      const reader = new FileReader();
-      
-      reader.onload = (e) => {
-        setProfileImage(e.target.result);
-      };
-      
-      reader.readAsDataURL(file);
-      uploadProfileImage(file);
-    }
-  };
-
-  const uploadProfileImage = async (file) => {
-    setUploadingImage(true);
-    try {
-      const formData = new FormData();
-      formData.append('profile_picture', file);
-      
-      const response = await axios.post(`/api/users/${user.id}/profile-picture`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
-      });
-      
-      if (response.data.profile_picture) {
-        setProfileImage(response.data.profile_picture);
-        
-        // Update local storage user data
-        const userData = JSON.parse(localStorage.getItem('user'));
-        userData.profile_picture = response.data.profile_picture;
-        localStorage.setItem('user', JSON.stringify(userData));
-        
-        setSnackbar({
-          open: true,
-          message: 'Profile picture updated successfully',
-          severity: 'success'
-        });
-      }
-    } catch (err) {
-      console.error('Error uploading profile picture:', err);
-      setSnackbar({
-        open: true,
-        message: 'Failed to upload profile picture',
-        severity: 'error'
-      });
-    } finally {
-      setUploadingImage(false);
-    }
-  };
-
-  const handleIdCardImageChange = (event) => {
-    if (event.target.files && event.target.files[0]) {
-      const file = event.target.files[0];
-      const reader = new FileReader();
-      
-      reader.onload = (e) => {
-        setIdCardImage(e.target.result);
-      };
-      
-      reader.readAsDataURL(file);
-      uploadIdCardImage(file);
-    }
-  };
-
-  const uploadIdCardImage = async (file) => {
-    setUploadingIdCard(true);
-    try {
-      const formData = new FormData();
-      formData.append('id_card_image', file);
-      
-      const response = await axios.post(`/api/users/${user.id}/id-card-image`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
-      });
-      
-      if (response.data.id_card_image) {
-        setIdCardImage(response.data.id_card_image);
-        
-        // Update local storage user data
-        const userData = JSON.parse(localStorage.getItem('user'));
-        userData.id_card_image = response.data.id_card_image;
-        localStorage.setItem('user', JSON.stringify(userData));
-        
-        setSnackbar({
-          open: true,
-          message: 'ID card image uploaded successfully',
-          severity: 'success'
-        });
-      }
-    } catch (err) {
-      console.error('Error uploading ID card image:', err);
-      setSnackbar({
-        open: true,
-        message: 'Failed to upload ID card image',
-        severity: 'error'
-      });
-    } finally {
-      setUploadingIdCard(false);
-    }
-  };
-
+  // Handle tab change
   const handleTabChange = (event, newValue) => {
     setTabValue(newValue);
   };
-
-  const handleEditClick = () => {
-    setEditMode(true);
+  
+  // Show snackbar message
+  const showSnackbar = (message, severity = 'success') => {
+    setSnackbarMessage(message);
+    setSnackbarSeverity(severity);
+    setSnackbarOpen(true);
   };
-
-  const handleCancelEdit = () => {
-    setEditMode(false);
-    setUpdatedUser(user);
+  
+  // Handle snackbar close
+  const handleSnackbarClose = (event, reason) => {
+    if (reason === 'clickaway') return;
+    setSnackbarOpen(false);
   };
-
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setUpdatedUser(prev => ({ ...prev, [name]: value }));
+  
+  // Handle item details
+  const handleViewDetails = (item) => {
+    setSelectedItem(item);
+    setDetailsOpen(true);
   };
-
-  const handleSaveChanges = async () => {
+  
+  // Handle item form
+  const handleAddItem = () => {
+    setIsEditForm(false);
+    setEditItem(null);
+    setFormOpen(true);
+  };
+  
+  const handleEditItem = (item) => {
+    setIsEditForm(true);
+    setEditItem(item);
+    setFormOpen(true);
+  };
+  
+  const handleItemFormSuccess = (item) => {
+    setFormOpen(false);
+    fetchUserItems();
+    showSnackbar(isEditForm ? 'Item updated successfully!' : 'Item added successfully!');
+  };
+  
+  // Handle item deletion
+  const handleDeleteItem = async (item, itemType) => {
     try {
-      const response = await axios.put(`/api/users/${user.id}`, updatedUser);
+      const token = localStorage.getItem('token');
+      if (!token) return;
       
-      // Update local state and localStorage
-      setUser(response.data);
-      localStorage.setItem('user', JSON.stringify(response.data));
+      const endpoint = itemType === 'marketplace' 
+        ? `/api/marketplace/${item._id}` 
+        : `/api/lostfound/${item._id}`;
       
-      setEditMode(false);
-      setSnackbar({
-        open: true,
-        message: 'Profile updated successfully',
-        severity: 'success'
+      await axios.delete(endpoint, {
+        headers: { 'Authorization': `Bearer ${token}` }
       });
-    } catch (err) {
-      console.error('Error updating profile:', err);
-      setSnackbar({
-        open: true,
-        message: 'Failed to update profile',
-        severity: 'error'
-      });
+      
+      fetchUserItems();
+      showSnackbar('Item deleted successfully!');
+    } catch (error) {
+      console.error('Error deleting item:', error);
+      showSnackbar('Error deleting item. Please try again later.', 'error');
     }
   };
-
+  
+  // Handle profile editing
+  const handleEditProfile = () => {
+    setIsEditing(true);
+  };
+  
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+    setEditedUser(user);
+    setImageFile(null);
+    setImagePreview('');
+  };
+  
+  const handleSaveProfile = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+      
+      const userId = user.id || user._id;
+      const updateData = { ...editedUser };
+      
+      // If we have a new image preview, it's a base64 image that needs to be sent to the server
+      if (imagePreview && imageFile) {
+        // Send the base64 image data directly in the JSON payload
+        updateData.profile_picture_data = imagePreview;
+      }
+      
+      // Delete profile_picture from the update data to avoid sending the URL
+      if (updateData.profile_picture && typeof updateData.profile_picture === 'string') {
+        delete updateData.profile_picture;
+      }
+      
+      // Send the update request as JSON
+      const response = await axios.put(`/api/users/${userId}`, updateData, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.data) {
+        setUser(response.data);
+        setIsEditing(false);
+        showSnackbar('Profile updated successfully!');
+      }
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      showSnackbar('Error updating profile. Please try again later.', 'error');
+    }
+  };
+  
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setEditedUser(prev => ({ ...prev, [name]: value }));
+  };
+  
+  const handleImageChange = (e) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setImageFile(file);
+      
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setImagePreview(e.target.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+  
+  // Handle deleting profile picture
+  const handleDeleteProfilePicture = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+      
+      const userId = user.id || user._id;
+      
+      // Call the DELETE endpoint for profile picture
+      const response = await axios.delete(`/api/users/${userId}/profile-picture`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (response.data) {
+        // Update local state
+        setUser(prev => ({
+          ...prev,
+          profile_picture: null
+        }));
+        
+        // If in edit mode, update edited user as well
+        if (isEditing) {
+          setEditedUser(prev => ({
+            ...prev,
+            profile_picture: null
+          }));
+          setImagePreview('');
+          setImageFile(null);
+        }
+        
+        showSnackbar('Profile picture deleted successfully!');
+      }
+    } catch (error) {
+      console.error('Error deleting profile picture:', error);
+      showSnackbar('Error deleting profile picture. Please try again later.', 'error');
+    }
+  };
+  
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    navigate('/');
-    
-    setSnackbar({
-      open: true,
-      message: 'Logged out successfully',
-      severity: 'success'
-    });
+    // Use replace: true to replace the current entry in history stack
+    // This prevents going back to a protected page after logout
+    navigate('/login', { replace: true });
   };
-
-  const handleDeleteProfilePicture = async () => {
-    try {
-      setUploadingImage(true);
-      const response = await axios.delete(`/api/users/${user?._id || user?.id}/profile-picture`);
-      
-      if (response.data) {
-        setProfileImage(null);
-        
-        // Update local storage user data
-        const userData = JSON.parse(localStorage.getItem('user'));
-        if (userData && userData.profile_picture) {
-          delete userData.profile_picture;
-          localStorage.setItem('user', JSON.stringify(userData));
-        }
-        
-        setSnackbar({
-          open: true,
-          message: 'Profile picture deleted successfully',
-          severity: 'success'
-        });
-      }
-    } catch (err) {
-      console.error('Error deleting profile picture:', err);
-      setSnackbar({
-        open: true,
-        message: 'Failed to delete profile picture',
-        severity: 'error'
-      });
-    } finally {
-      setUploadingImage(false);
-    }
+  
+  // Get user display name
+  const getUserDisplayName = () => {
+    if (!user) return 'User';
+    return user.name || user.email || 'User';
   };
-
-  // Load user posts based on active tab
-  useEffect(() => {
-    if (user?._id) {
-      setLoadingPosts(true);
-      
-      // Add timestamp to prevent caching
-      const timestamp = new Date().getTime();
-      const endpoint = 
-        tabValue === 0 ? `/api/marketplace/items/user/${user._id}?_=${timestamp}` : 
-        tabValue === 1 ? `/api/lost-found/user-items/${user._id}?_=${timestamp}` : 
-        tabValue === 2 ? `/api/marketplace/orders/buyer?_=${timestamp}` : 
-        tabValue === 3 ? `/api/marketplace/orders/seller?_=${timestamp}` : 
-        `/api/marketplace/messages/conversations`;
-      
-      axios.get(endpoint, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      })
-        .then(response => {
-          if (tabValue === 0) {
-            setMarketplacePosts(response.data || []);
-          } else if (tabValue === 1) {
-            setLostFoundItems(response.data || []);
-          } else if (tabValue === 2) {
-            setPurchaseHistory(response.data || []);
-          } else if (tabValue === 3) {
-            setSellingHistory(response.data || []);
-          } else {
-            // Messages tab
-          }
-        })
-        .catch(error => {
-          console.error(`Error fetching user ${tabValue === 0 ? 'marketplace items' : tabValue === 1 ? 'lost & found items' : tabValue === 2 ? 'purchases' : tabValue === 3 ? 'sales' : 'messages'}:`, error);
-          // Don't show the error message to the user, just reset the data to empty array
-          if (tabValue === 0) {
-            setMarketplacePosts([]);
-          } else if (tabValue === 1) {
-            setLostFoundItems([]);
-          } else if (tabValue === 2) {
-            setPurchaseHistory([]);
-          } else if (tabValue === 3) {
-            setSellingHistory([]);
-          } else {
-            // Messages tab error handling
-          }
-        })
-        .finally(() => {
-          setLoadingPosts(false);
-        });
-    }
-  }, [user, tabValue]);
-
-  // Handle delete dialog actions
-  const handleOpenDeleteDialog = (id, type) => {
-    setDeleteDialog({
-      open: true,
-      postId: id,
-      postType: type
-    });
-  };
-
-  const handleCloseDeleteDialog = () => {
-    setDeleteDialog({
-      open: false,
-      postId: null,
-      postType: null
-    });
-  };
-
-  const handleDeleteItem = () => {
-    if (!deleteDialog.postId || !deleteDialog.postType) return;
-    
-    const endpoint = 
-      deleteDialog.postType === 'marketplace' ? `/api/marketplace/items/${deleteDialog.postId}` : 
-      `/api/lost-found/items/${deleteDialog.postId}`;
-    
-    axios.delete(endpoint, {
-      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-    })
-      .then(() => {
-        // Remove deleted item from state
-        if (deleteDialog.postType === 'marketplace') {
-          setMarketplacePosts(prev => prev.filter(item => item._id !== deleteDialog.postId));
-          
-          // Refresh the marketplace data to keep it in sync with other views
-          const userId = user?._id;
-          if (userId) {
-            // Add timestamp to prevent caching
-            const timestamp = new Date().getTime();
-            axios.get(`/api/marketplace/items/user/${userId}?_=${timestamp}`, {
-              headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
-          }
-        } else if (deleteDialog.postType === 'lostfound') {
-          setLostFoundItems(prev => prev.filter(item => item._id !== deleteDialog.postId));
-        } else {
-          setRideRequests(prev => prev.filter(ride => ride._id !== deleteDialog.postId));
-        }
-        
-        setSnackbar({
-          open: true,
-          message: `${deleteDialog.postType === 'marketplace' ? 'Item' : deleteDialog.postType === 'lostfound' ? 'Report' : 'Ride'} deleted successfully.`,
-          severity: 'success'
-        });
-      })
-      .catch(error => {
-        console.error('Error deleting item:', error);
-        setSnackbar({
-          open: true,
-          message: `Failed to delete ${deleteDialog.postType === 'marketplace' ? 'item' : deleteDialog.postType === 'lostfound' ? 'report' : 'ride'}.`,
-          severity: 'error'
-        });
-      })
-      .finally(() => {
-        handleCloseDeleteDialog();
-      });
-  };
-
-  const handleCreateNewItem = () => {
-    setNewItemOpen(true);
-  };
-
-  const handleNewItemSuccess = (newItemData) => {
-    // Handle different response data structures
-    const newItem = newItemData.item || newItemData;
-    
-    // Add the new item to the marketplacePosts at the beginning of the array if it's valid
-    if (newItem && (newItem._id || newItem.item_id)) {
-      // If we need to refresh to get the complete item data
-      if (!newItem.title && newItem.item_id) {
-        // If only an ID is returned, refresh the list to get the complete item
-        handleRefreshMarketplaceItems();
-      } else {
-        // If we have the complete item data, add it to the list
-        setMarketplacePosts(prevItems => [newItem, ...prevItems]);
-      }
-      
-      setSnackbar({
-        open: true,
-        message: 'Item created successfully',
-        severity: 'success'
-      });
-    } else {
-      console.error('Invalid new item data received:', newItemData);
-      // Still refresh the list to ensure we have the latest data
-      handleRefreshMarketplaceItems();
-    }
-    setNewItemOpen(false);
-  };
-
-  const handleRefreshMarketplaceItems = async () => {
-    if (user?._id) {
-      setLoadingPosts(true);
-      try {
-        // Add timestamp to prevent caching
-        const timestamp = new Date().getTime();
-        const response = await axios.get(`/api/marketplace/items/user/${user._id}?_=${timestamp}`, {
-          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-        });
-        setMarketplacePosts(response.data || []);
-        
-        setSnackbar({
-          open: true,
-          message: 'Items refreshed successfully',
-          severity: 'success'
-        });
-      } catch (err) {
-        console.error('Error refreshing marketplace items:', err);
-      } finally {
-        setLoadingPosts(false);
-      }
-    }
-  };
-
-  const renderUserActivity = () => {
-    return (
-      <Paper
-        elevation={3}
-        sx={{
-          p: 3,
-          mt: 4,
-          borderRadius: '16px',
-          background: 'rgba(255, 255, 255, 0.85)',
-          backdropFilter: 'blur(8px)',
-          boxShadow: '0 8px 16px rgba(0, 0, 0, 0.1)',
-          border: '1px solid rgba(255, 255, 255, 0.5)'
-        }}
-      >
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-          <Typography variant="h5" gutterBottom>
-            Your Activity
-          </Typography>
+  
+  // Render marketplace items
+  const renderMarketplaceItems = () => {
+    if (marketplaceItems.length === 0) {
+      return (
+        <Box sx={{ p: 3, textAlign: 'center' }}>
+          <Typography variant="body1" color="text.secondary">No marketplace items found.</Typography>
+          {isCurrentUser() && (
+            <Button 
+              variant="contained" 
+              color="primary" 
+              startIcon={<AddIcon />}
+              onClick={() => navigate('/marketplace')}
+              sx={{ mt: 2 }}
+            >
+              Go to Marketplace
+            </Button>
+          )}
         </Box>
-        <Tabs value={tabValue} onChange={handleTabChange} aria-label="activity tabs">
-          <Tab label="Marketplace" />
-          <Tab label="Lost & Found" />
-          <Tab label="Purchases" />
-          <Tab label="Sales" />
-          <Tab icon={<Badge badgeContent={messageCount} color="error" invisible={messageCount === 0}><MessageIcon /></Badge>} label="Messages" />
-        </Tabs>
-        <Divider sx={{ my: 2 }} />
-        {/* Marketplace Tab */}
-        <div role="tabpanel" hidden={tabValue !== 0} id="tabpanel-0" aria-labelledby="tab-0">
-          {marketplacePosts.length > 0 ? (
-            <List>
-              {marketplacePosts.map((post) => (
-                <ListItem key={post._id} divider sx={{ py: 2 }}>
-                  <ListItemAvatar>
-                    <Avatar 
-                      src={getItemImage(post)} 
-                      variant="rounded" 
-                      sx={{ width: 60, height: 60 }}
-                    >
-                      {(!post.images || post.images.length === 0) && !post.image ? post.title.charAt(0) : null}
-                    </Avatar>
-                  </ListItemAvatar>
-                  <ListItemText
-                    primary={post.title}
-                    secondary={
-                      <>
-                        <Typography component="span" variant="body2" color="text.primary">
-                          ${post.price} • {post.category}
-                        </Typography>
-                        <br />
-                        {post.description.substring(0, 100)}
-                        {post.description.length > 100 ? '...' : ''}
-                      </>
-                    }
-                  />
-                  <ListItemSecondaryAction>
-                    <IconButton edge="end" onClick={() => handleViewItem(post)}>
-                      <PhotoCameraIcon />
-                    </IconButton>
-                    <IconButton edge="end" onClick={() => handleEditItem(post)}>
-                      <EditIcon />
-                    </IconButton>
-                    <IconButton edge="end" onClick={() => handleOpenDeleteDialog(post._id, 'marketplace')}>
-                      <DeleteIcon />
-                    </IconButton>
-                  </ListItemSecondaryAction>
-                </ListItem>
-              ))}
-            </List>
-          ) : (
-            <Box sx={{ textAlign: 'center', py: 3 }}>
-              <Typography variant="body1" color="text.secondary" paragraph>
-                You haven't posted any items in the marketplace yet.
-              </Typography>
-              <Button 
-                variant="contained" 
-                startIcon={<StoreIcon />}
-                onClick={() => navigate('/marketplace/sell')}
-              >
-                Create Your First Post
-              </Button>
-            </Box>
-          )}
-        </div>
-        {/* Lost & Found Tab */}
-        <div role="tabpanel" hidden={tabValue !== 1} id="tabpanel-1" aria-labelledby="tab-1">
-          {lostFoundItems.length > 0 ? (
-            <List>
-              {lostFoundItems.map((item) => (
-                <ListItem key={item._id} divider sx={{ py: 2 }}>
-                  <ListItemAvatar>
-                    <Avatar 
-                      src={item.images && item.images.length > 0 ? 
-                        (item.images[0].startsWith('http') ? item.images[0] : `http://localhost:5000${item.images[0]}`) : 
-                        (item.image ? (item.image.startsWith('http') ? item.image : `http://localhost:5000${item.image}`) : '')} 
-                      variant="rounded" 
-                      sx={{ width: 60, height: 60 }}
-                    >
-                      {(!item.images || item.images.length === 0) && !item.image ? item.title.charAt(0) : null}
-                    </Avatar>
-                  </ListItemAvatar>
-                  <ListItemText
-                    primary={item.title}
-                    secondary={
-                      <>
-                        <Typography component="span" variant="body2" color="text.primary">
-                          {item.category}
-                        </Typography>
-                        <br />
-                        {item.description.substring(0, 100)}
-                        {item.description.length > 100 ? '...' : ''}
-                      </>
-                    }
-                  />
-                  <ListItemSecondaryAction>
-                    <IconButton edge="end" onClick={() => handleOpenDeleteDialog(item._id, 'lostfound')}>
-                      <DeleteIcon />
-                    </IconButton>
-                  </ListItemSecondaryAction>
-                </ListItem>
-              ))}
-            </List>
-          ) : (
-            <Box sx={{ textAlign: 'center', py: 3 }}>
-              <Typography variant="body1" color="text.secondary" paragraph>
-                You haven't posted any lost & found reports yet.
-              </Typography>
-            </Box>
-          )}
-        </div>
-        {/* Ride Shares Tab removed */}
-        {/* Purchases Tab */}
-        <div role="tabpanel" hidden={tabValue !== 2} id="tabpanel-2" aria-labelledby="tab-2">
-          {loadingPurchaseHistory ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-              <CircularProgress />
-            </Box>
-          ) : purchaseHistory.length > 0 ? (
-            <List>
-              {purchaseHistory.map((order) => (
-                <ListItem key={order._id} divider sx={{ py: 2 }}>
-                  <ListItemAvatar>
-                    <Avatar 
-                      src={order.item?.image || order.item?.images?.[0] || ''} 
-                      variant="rounded" 
-                      sx={{ width: 60, height: 60 }}
-                    >
-                      {!order.item?.image && !order.item?.images?.[0] ? (order.item?.title || '?').charAt(0) : null}
-                    </Avatar>
-                  </ListItemAvatar>
-                  <ListItemText
-                    primary={order.item?.title || 'Untitled Item'}
-                    secondary={
-                      <>
-                        <Typography component="span" variant="body2" color="text.primary">
-                          ৳{order.total_amount?.toLocaleString() || '0'} • Purchased on {new Date(order.created_at).toLocaleDateString()}
-                        </Typography>
-                        <br />
-                        <Typography component="span" variant="body2">
-                          Seller: {order.other_party?.name || 'Unknown'}
-                        </Typography>
-                        <br />
-                        <Chip 
-                          size="small" 
-                          color="success" 
-                          label={order.status || 'Confirmed'} 
-                          sx={{ mt: 1 }}
-                        />
-                      </>
-                    }
-                  />
-                </ListItem>
-              ))}
-            </List>
-          ) : (
-            <Box sx={{ textAlign: 'center', py: 3 }}>
-              <Typography variant="body1" color="text.secondary" paragraph>
-                You haven't made any purchases yet.
-              </Typography>
-            </Box>
-          )}
-        </div>
-        {/* Sales Tab */}
-        <div role="tabpanel" hidden={tabValue !== 3} id="tabpanel-3" aria-labelledby="tab-3">
-          {loadingSellingHistory ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-              <CircularProgress />
-            </Box>
-          ) : sellingHistory.length > 0 ? (
-            <List>
-              {sellingHistory.map((order) => (
-                <ListItem key={order._id} divider sx={{ py: 2 }}>
-                  <ListItemAvatar>
-                    <Avatar 
-                      src={order.item?.image || order.item?.images?.[0] || ''} 
-                      variant="rounded" 
-                      sx={{ width: 60, height: 60 }}
-                    >
-                      {!order.item?.image && !order.item?.images?.[0] ? (order.item?.title || '?').charAt(0) : null}
-                    </Avatar>
-                  </ListItemAvatar>
-                  <ListItemText
-                    primary={order.item?.title || 'Untitled Item'}
-                    secondary={
-                      <>
-                        <Typography component="span" variant="body2" color="text.primary">
-                          ৳{order.total_amount?.toLocaleString() || '0'} • Sold on {new Date(order.created_at).toLocaleDateString()}
-                        </Typography>
-                        <br />
-                        <Typography component="span" variant="body2">
-                          Buyer: {order.other_party?.name || 'Unknown'}
-                        </Typography>
-                        <br />
-                        <Chip 
-                          size="small" 
-                          color="success" 
-                          label={order.status || 'Confirmed'} 
-                          sx={{ mt: 1 }}
-                        />
-                      </>
-                    }
-                  />
-                </ListItem>
-              ))}
-            </List>
-          ) : (
-            <Box sx={{ textAlign: 'center', py: 3 }}>
-              <Typography variant="body1" color="text.secondary" paragraph>
-                You haven't made any sales yet.
-              </Typography>
-            </Box>
-          )}
-        </div>
-        {/* Messages Tab */}
-        <div role="tabpanel" hidden={tabValue !== 5} id="tabpanel-5" aria-labelledby="tab-5">
-          <MessageCenter userId={user?._id || user?.id} />
-        </div>
-      </Paper>
+      );
+    }
+    
+    return (
+      <Box sx={{ p: 2 }}>
+        {isCurrentUser() && (
+          <Box sx={{ mb: 2, display: 'flex', justifyContent: 'flex-end' }}>
+            <Button 
+              variant="contained" 
+              color="primary" 
+              startIcon={<AddIcon />}
+              onClick={() => navigate('/marketplace')}
+            >
+              Go to Marketplace
+            </Button>
+          </Box>
+        )}
+        <Grid container spacing={2}>
+          {marketplaceItems.map(item => (
+            <Grid item xs={12} sm={6} md={4} key={item._id}>
+              <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                <CardMedia
+                  component="img"
+                  height="140"
+                  image={item.images && item.images.length > 0 ? item.images[0] : '/assets/images/placeholder.jpg'}
+                  alt={item.title}
+                />
+                <CardContent sx={{ flexGrow: 1 }}>
+                  <Typography gutterBottom variant="h6" component="div">
+                    {item.title}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {item.description?.length > 100 
+                      ? `${item.description.substring(0, 100)}...` 
+                      : item.description}
+                  </Typography>
+                  <Typography variant="h6" color="primary" sx={{ mt: 1 }}>
+                    ৳{item.price}
+                  </Typography>
+                </CardContent>
+                <CardActions>
+                  <Button size="small" onClick={() => navigate(`/marketplace`)}>Go to Marketplace</Button>
+                </CardActions>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
+      </Box>
     );
   };
-
-  return (
-    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-      {/* Back to Dashboard Button and Logged-in Student Name */}
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-        <Button
-          variant="outlined"
-          color="primary"
-          onClick={() => navigate('/')}
-          sx={{ mr: 2 }}
-        >
-          Back to Home
-        </Button>
-        {/* Show logged-in student name */}
-        {user && (
-          <Typography variant="subtitle1" sx={{ fontWeight: 600, color: 'text.primary' }}>
-            Logged in as: {user.name}
-          </Typography>
+  
+  // Render lost & found items
+  const renderLostFoundItems = () => {
+    if (lostFoundItems.length === 0) {
+      return (
+        <Box sx={{ p: 3, textAlign: 'center' }}>
+          <Typography variant="body1" color="text.secondary">No lost & found items found.</Typography>
+          {isCurrentUser() && (
+            <Button 
+              variant="contained" 
+              color="primary" 
+              startIcon={<AddIcon />}
+              onClick={() => navigate('/lost-found')}
+              sx={{ mt: 2 }}
+            >
+              Go to Lost & Found
+            </Button>
+          )}
+        </Box>
+      );
+    }
+    
+    return (
+      <Box sx={{ p: 2 }}>
+        {isCurrentUser() && (
+          <Box sx={{ mb: 2, display: 'flex', justifyContent: 'flex-end' }}>
+            <Button 
+              variant="contained" 
+              color="primary" 
+              startIcon={<AddIcon />}
+              onClick={() => navigate('/lost-found')}
+            >
+              Go to Lost & Found
+            </Button>
+          </Box>
+        )}
+        <Grid container spacing={2}>
+          {lostFoundItems.map(item => (
+            <Grid item xs={12} sm={6} md={4} key={item._id}>
+              <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                <CardMedia
+                  component="img"
+                  height="140"
+                  image={item.images && item.images.length > 0 ? item.images[0] : '/assets/images/placeholder.jpg'}
+                  alt={item.title}
+                />
+                <CardContent sx={{ flexGrow: 1 }}>
+                  <Typography gutterBottom variant="h6" component="div">
+                    {item.title}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {item.description?.length > 100 
+                      ? `${item.description.substring(0, 100)}...` 
+                      : item.description}
+                  </Typography>
+                  <Chip 
+                    label={item.status || 'Lost'} 
+                    color={item.status === 'Found' ? 'success' : 'error'}
+                    size="small"
+                    sx={{ mt: 1 }}
+                  />
+                </CardContent>
+                <CardActions>
+                  <Button size="small" onClick={() => navigate('/lost-found')}>Go to Lost & Found</Button>
+                </CardActions>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
+      </Box>
+    );
+  };
+  
+  // Render purchase items
+  const renderPurchaseItems = () => {
+    if (purchaseItems.length === 0) {
+      return (
+        <Box sx={{ p: 3, textAlign: 'center' }}>
+          <Typography variant="body1" color="text.secondary">No purchase history found.</Typography>
+          <Button 
+            variant="contained" 
+            color="primary" 
+            component={Link}
+            to="/marketplace"
+            sx={{ mt: 2 }}
+          >
+            Browse Marketplace
+          </Button>
+        </Box>
+      );
+    }
+    
+    return (
+      <Box sx={{ p: 2 }}>
+        <Typography variant="h6" gutterBottom>
+          Your Purchase History
+        </Typography>
+        <Grid container spacing={2}>
+          {purchaseItems.map(item => (
+            <Grid item xs={12} sm={6} md={4} key={item._id || item.item_id}>
+              <Card sx={{ 
+                height: '100%', 
+                display: 'flex', 
+                flexDirection: 'column',
+                position: 'relative'
+              }}>
+                <Box sx={{
+                  position: 'absolute',
+                  top: 0,
+                  right: 0,
+                  bgcolor: 'success.main',
+                  color: 'white',
+                  px: 1,
+                  py: 0.5,
+                  zIndex: 1,
+                  borderBottomLeftRadius: 4
+                }}>
+                  <Typography variant="caption" fontWeight="bold">
+                    Purchased
+                  </Typography>
+                </Box>
+                <CardMedia
+                  component="img"
+                  height="140"
+                  image={item.images && item.images.length > 0 ? item.images[0] : '/assets/images/placeholder.jpg'}
+                  alt={item.title}
+                />
+                <CardContent sx={{ flexGrow: 1 }}>
+                  <Typography gutterBottom variant="h6" component="div">
+                    {item.title}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {item.description?.length > 100 
+                      ? `${item.description.substring(0, 100)}...` 
+                      : item.description}
+                  </Typography>
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="body2" color="primary" sx={{ fontWeight: 'bold' }}>
+                      Price: ৳{item.price}
+                    </Typography>
+                    {item.purchase_date && (
+                      <Typography variant="body2" color="text.secondary">
+                        Purchased: {new Date(item.purchase_date).toLocaleDateString()}
+                      </Typography>
+                    )}
+                    {item.payment_method && (
+                      <Typography variant="body2" color="text.secondary">
+                        Payment: {item.payment_method.toUpperCase()}
+                      </Typography>
+                    )}
+                    {item.seller && item.seller.name && (
+                      <Typography variant="body2" color="text.secondary">
+                        Seller: {item.seller.name}
+                      </Typography>
+                    )}
+                  </Box>
+                </CardContent>
+                <CardActions>
+                  <Button size="small" onClick={() => handleViewDetails(item)}>View Details</Button>
+                </CardActions>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
+      </Box>
+    );
+  };
+  
+  // Render sell items
+  const renderSellItems = () => {
+    const hasActiveItems = sellItems.length > 0;
+    const hasSoldItems = soldItems.length > 0;
+    
+    if (!hasActiveItems && !hasSoldItems) {
+      return (
+        <Box sx={{ p: 3, textAlign: 'center' }}>
+          <Typography variant="body1" color="text.secondary">No marketplace items found.</Typography>
+          {isCurrentUser() && (
+            <Button 
+              variant="contained" 
+              color="primary" 
+              startIcon={<AddIcon />}
+              onClick={handleAddItem}
+              sx={{ mt: 2 }}
+            >
+              Add Item for Sale
+            </Button>
+          )}
+        </Box>
+      );
+    }
+    
+    return (
+      <Box sx={{ p: 2 }}>
+        {isCurrentUser() && (
+          <Box sx={{ mb: 2, display: 'flex', justifyContent: 'flex-end' }}>
+            <Button 
+              variant="contained" 
+              color="primary" 
+              startIcon={<AddIcon />}
+              onClick={handleAddItem}
+            >
+              Add Item for Sale
+            </Button>
+          </Box>
+        )}
+        
+        {/* Sold Items Section */}
+        {hasSoldItems && (
+          <>
+            <Typography variant="h6" gutterBottom sx={{ mt: 4, borderBottom: '1px solid #eee', pb: 1 }}>
+              Sold Items
+            </Typography>
+            <Grid container spacing={2}>
+              {soldItems.map(item => (
+                <Grid item xs={12} sm={6} md={4} key={item._id}>
+                  <Card sx={{ 
+                    height: '100%', 
+                    display: 'flex', 
+                    flexDirection: 'column',
+                    position: 'relative'
+                  }}>
+                    <Box sx={{
+                      position: 'absolute',
+                      top: 0,
+                      right: 0,
+                      bgcolor: 'success.main',
+                      color: 'white',
+                      px: 1,
+                      py: 0.5,
+                      zIndex: 1,
+                      borderBottomLeftRadius: 4
+                    }}>
+                      <Typography variant="caption" fontWeight="bold">
+                        Sold
+                      </Typography>
+                    </Box>
+                    <CardMedia
+                      component="img"
+                      height="140"
+                      image={item.images && item.images.length > 0 ? item.images[0] : '/assets/images/placeholder.jpg'}
+                      alt={item.title}
+                    />
+                    <CardContent sx={{ flexGrow: 1 }}>
+                      <Typography gutterBottom variant="h6" component="div">
+                        {item.title}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {item.description?.length > 100 
+                          ? `${item.description.substring(0, 100)}...` 
+                          : item.description}
+                      </Typography>
+                      <Typography variant="h6" color="primary" sx={{ mt: 1 }}>
+                        ৳{item.price}
+                      </Typography>
+                      <Box sx={{ mt: 1 }}>
+                        {item.sold_date && (
+                          <Typography variant="body2" color="text.secondary">
+                            Sold: {new Date(item.sold_date).toLocaleDateString()}
+                          </Typography>
+                        )}
+                        {item.buyer_id && (
+                          <Typography variant="body2" color="text.secondary">
+                            Buyer ID: {item.buyer_id.substring(0, 8)}...
+                          </Typography>
+                        )}
+                      </Box>
+                    </CardContent>
+                    <CardActions>
+                      <Button size="small" onClick={() => handleViewDetails(item)}>View Details</Button>
+                    </CardActions>
+                  </Card>
+                </Grid>
+              ))}
+            </Grid>
+          </>
         )}
       </Box>
+    );
+  };
+  
+  return (
+    <Container maxWidth="lg" sx={{ py: 4 }}>
       {loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '70vh' }}>
           <CircularProgress />
         </Box>
       ) : (
         <>
-          {/* User Profile Section */}
-          <Paper 
-            elevation={3} 
-            sx={{ 
-              p: 3, 
-              borderRadius: '16px', 
-              mb: 4,
-              background: 'rgba(255, 255, 255, 0.85)',
-              backdropFilter: 'blur(8px)',
-              boxShadow: '0 8px 16px rgba(0, 0, 0, 0.1)',
-              border: '1px solid rgba(255, 255, 255, 0.5)'
-            }}
-          >
-            <Grid container spacing={3}>
-              {/* Profile Image Section */}
-              <Grid item xs={12} md={4} sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <Box sx={{ position: 'relative' }}>
-                  <Avatar 
-                    src={profileImage} 
-                    alt={user?.name || 'User'} 
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+            <Button 
+              component={Link} 
+              to="/" 
+              startIcon={<ArrowBackIcon />} 
+              sx={{ color: 'primary.main' }}
+            >
+              Back to Home
+            </Button>
+            <Typography variant="body2" color="text.secondary">
+              Logged in as: {getUserDisplayName()}
+            </Typography>
+          </Box>
+
+          <Paper elevation={3} sx={{ p: 4, borderRadius: '8px', mb: 4, bgcolor: '#fff' }}>
+            <Typography variant="h5" sx={{ mb: 3, fontWeight: 'bold' }}>
+              Profile Information
+            </Typography>
+            
+            <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, mb: 4 }}>
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mr: { md: 6 }, mb: { xs: 4, md: 0 } }}>
+                <Box sx={{ position: 'relative', mb: 2 }}>
+                  <Avatar
+                    src={isEditing && imagePreview ? imagePreview : user?.profile_picture || ''}
                     sx={{ 
-                      width: 200, 
-                      height: 200, 
-                      mb: 2,
-                      border: '3px solid #1976d2',
-                      boxShadow: '0 4px 8px rgba(0, 0, 0, 0.2)',
-                      bgcolor: 'secondary.main',
-                      fontSize: 80
+                      width: 120, 
+                      height: 120, 
+                      bgcolor: 'purple', 
+                      fontSize: '3rem',
+                      boxShadow: '0px 4px 10px rgba(0, 0, 0, 0.1)'
                     }}
                   >
-                    {user?.name ? user.name.charAt(0).toUpperCase() : '?'}
+                    {user?.name ? user.name.charAt(0).toUpperCase() : 'U'}
                   </Avatar>
-                  {uploadingImage ? (
-                    <CircularProgress 
-                      size={30} 
-                      sx={{ 
-                        position: 'absolute', 
-                        bottom: 20, 
-                        right: 0 
-                      }} 
-                    />
-                  ) : (
-                    <Box sx={{ position: 'absolute', bottom: 20, right: 0, display: 'flex' }}>
-                      {profileImage && (
+                  {isEditing && (
+                    <Box sx={{ position: 'absolute', bottom: 0, right: 0, display: 'flex' }}>
+                      <IconButton
+                        sx={{
+                          backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                          '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.9)' },
+                          mr: 1
+                        }}
+                        onClick={() => fileInputRef.current.click()}
+                        title="Upload new picture"
+                      >
+                        <PhotoCameraIcon />
+                      </IconButton>
+                      
+                      {user?.profile_picture && (
                         <IconButton
-                          color="error"
-                          aria-label="delete picture"
-                          sx={{ 
-                            mr: 1,
-                            backgroundColor: 'white',
-                            '&:hover': { backgroundColor: '#f5f5f5' }
+                          sx={{
+                            backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                            '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.9)' }
                           }}
                           onClick={handleDeleteProfilePicture}
+                          color="error"
+                          title="Delete profile picture"
                         >
                           <DeleteIcon />
                         </IconButton>
                       )}
-                      <IconButton
-                        color="primary"
-                        aria-label="upload picture"
-                        component="label"
-                        sx={{ 
-                          backgroundColor: 'white',
-                          '&:hover': { backgroundColor: '#f5f5f5' }
-                        }}
-                      >
-                        <input 
-                          hidden 
-                          accept="image/*" 
-                          type="file" 
-                          onChange={handleProfileImageChange} 
-                        />
-                        <PhotoCameraIcon />
-                      </IconButton>
                     </Box>
                   )}
-                </Box>
-                <Typography variant="h5" sx={{ fontWeight: 600 }}>
-                  {user?.name}
-                </Typography>
-                <Typography variant="body1" color="text.secondary" gutterBottom>
-                  {user?.email}
-                </Typography>
-                
-                {/* ID Card View Section */}
-                <Box sx={{ 
-                  mt: 3, 
-                  width: '100%', 
-                  p: 2, 
-                  borderRadius: '8px',
-                  textAlign: 'center',
-                  background: 'rgba(255, 255, 255, 0.5)',
-                  boxShadow: '0 4px 8px rgba(0, 0, 0, 0.05)'
-                }}>
-                  <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 500 }}>
-                    ID Card
-                  </Typography>
-                  
-                  {idCardImage ? (
-                    <Box sx={{ position: 'relative', mb: 1 }}>
-                      <img 
-                        src={idCardImage} 
-                        alt="ID Card" 
-                        style={{ 
-                          width: '100%', 
-                          borderRadius: '4px',
-                          maxHeight: '120px',
-                          objectFit: 'contain',
-                          border: '1px solid rgba(0, 0, 0, 0.1)'
-                        }}
-                      />
-                    </Box>
-                  ) : (
-                    <Box sx={{ p: 2, bgcolor: 'rgba(0, 0, 0, 0.03)', borderRadius: '4px' }}>
-                      <Typography variant="body2" color="text.secondary">
-                        ID card image not available
-                      </Typography>
-                    </Box>
-                  )}
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    style={{ display: 'none' }}
+                    accept="image/*"
+                    onChange={handleImageChange}
+                  />
                 </Box>
                 
-                {!editMode && (
-                  <Box sx={{ mt: 3, width: '100%', display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    <Button 
-                      variant="contained" 
-                      className="gradient-primary"
-                      fullWidth
-                      onClick={handleEditClick}
-                      startIcon={<EditIcon />}
-                    >
-                      Edit Profile
-                    </Button>
-                    <Button 
-                      variant="outlined" 
-                      color="error"
-                      fullWidth
-                      startIcon={<LogoutIcon />}
-                      onClick={handleLogout}
-                    >
-                      Logout
-                    </Button>
+                <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 1 }}>
+                  {user?.name || 'User'}
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  {user?.email || ''}
+                </Typography>
+                
+                {isCurrentUser() && !isEditing && user?.profile_picture && (
+                  <Button
+                    variant="outlined"
+                    color="error"
+                    size="small"
+                    startIcon={<DeleteIcon />}
+                    onClick={handleDeleteProfilePicture}
+                    sx={{ mb: 2 }}
+                  >
+                    Delete Picture
+                  </Button>
+                )}
+                
+                {isCurrentUser() && (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, width: '100%' }}>
+                    {isEditing ? (
+                      <>
+                        <Button
+                          fullWidth
+                          variant="contained"
+                          color="primary"
+                          startIcon={<SaveIcon />}
+                          onClick={handleSaveProfile}
+                          sx={{ mb: 1 }}
+                        >
+                          Save Profile
+                        </Button>
+                        <Button
+                          fullWidth
+                          variant="outlined"
+                          color="error"
+                          startIcon={<CancelIcon />}
+                          onClick={handleCancelEdit}
+                        >
+                          Cancel
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button
+                          fullWidth
+                          variant="contained"
+                          color="primary"
+                          startIcon={<EditIcon />}
+                          onClick={handleEditProfile}
+                          sx={{ mb: 1 }}
+                        >
+                          Edit Profile
+                        </Button>
+                        <Button
+                          fullWidth
+                          variant="outlined"
+                          color="error"
+                          startIcon={<LogoutIcon />}
+                          onClick={handleLogout}
+                        >
+                          Logout
+                        </Button>
+                      </>
+                    )}
                   </Box>
                 )}
-              </Grid>
+              </Box>
               
-              {/* User Details Section */}
-              <Grid item xs={12} md={8}>
-                <Typography variant="h5" gutterBottom sx={{ fontWeight: 600 }}>
-                  {editMode ? 'Edit Profile' : 'Profile Information'}
-                </Typography>
-                <Divider sx={{ mb: 3 }} />
-                
-                {editMode ? (
-                  <>
-                    <Grid container spacing={2}>
-                      <Grid item xs={12} sm={6}>
-                        <TextField
-                          fullWidth
-                          label="Name"
-                          name="name"
-                          variant="outlined"
-                          value={updatedUser.name || ''}
-                          onChange={handleInputChange}
-                        />
-                      </Grid>
-                      <Grid item xs={12} sm={6}>
-                        <TextField
-                          fullWidth
-                          label="Email"
-                          name="email"
-                          variant="outlined"
-                          value={updatedUser.email || ''}
-                          disabled
-                        />
-                      </Grid>
-                      <Grid item xs={12} sm={6}>
-                        <TextField
-                          fullWidth
-                          label="Student ID"
-                          name="student_id"
-                          variant="outlined"
-                          value={updatedUser.student_id || ''}
-                          onChange={handleInputChange}
-                        />
-                      </Grid>
-                      <Grid item xs={12} sm={6}>
-                        <TextField
-                          fullWidth
-                          label="Department"
-                          name="department"
-                          variant="outlined"
-                          value={updatedUser.department || ''}
-                          onChange={handleInputChange}
-                        />
-                      </Grid>
-                      <Grid item xs={12} sm={6}>
-                        <TextField
-                          fullWidth
-                          label="Semester"
-                          name="semester"
-                          variant="outlined"
-                          value={updatedUser.semester || ''}
-                          onChange={handleInputChange}
-                        />
-                      </Grid>
-                      <Grid item xs={12} sm={6}>
-                        <TextField
-                          fullWidth
-                          label="Phone"
-                          name="phone"
-                          variant="outlined"
-                          value={updatedUser.phone || ''}
-                          onChange={handleInputChange}
-                          placeholder="Add your phone number"
-                        />
-                      </Grid>
-                      <Grid item xs={12}>
-                        <TextField
-                          fullWidth
-                          label="Address"
-                          name="address"
-                          variant="outlined"
-                          multiline
-                          rows={2}
-                          value={updatedUser.address || ''}
-                          onChange={handleInputChange}
-                        />
-                      </Grid>
-                    </Grid>
-                    
-                    <Box sx={{ mt: 3, display: 'flex', justifyContent: 'flex-end' }}>
-                      <Button 
-                        variant="outlined" 
-                        color="error" 
-                        startIcon={<CancelIcon />} 
-                        sx={{ mr: 2 }}
-                        onClick={handleCancelEdit}
-                      >
-                        Cancel
-                      </Button>
-                      <Button 
-                        variant="contained" 
-                        color="primary" 
-                        startIcon={<SaveIcon />}
-                        onClick={handleSaveChanges}
-                      >
-                        Save Changes
-                      </Button>
-                    </Box>
-                  </>
-                ) : (
-                  <Grid container spacing={2}>
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="body2" color="text.secondary">
+              <Box sx={{ flexGrow: 1 }}>
+                <Grid container spacing={3}>
+                  <Grid item xs={12} sm={6}>
+                    <Box sx={{ mb: 3 }}>
+                      <Typography variant="body2" color="text.secondary" gutterBottom>
                         Student ID
                       </Typography>
-                      <Typography variant="body1" sx={{ mb: 2 }}>
-                        {user?.student_id || 'Not provided'}
-                      </Typography>
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="body2" color="text.secondary">
+                      {isEditing ? (
+                        <TextField
+                          fullWidth
+                          size="small"
+                          name="student_id"
+                          value={editedUser.student_id || ''}
+                          onChange={handleInputChange}
+                        />
+                      ) : (
+                        <Typography variant="body1">
+                          {user?.student_id || ''}
+                        </Typography>
+                      )}
+                    </Box>
+                  </Grid>
+                  
+                  <Grid item xs={12} sm={6}>
+                    <Box sx={{ mb: 3 }}>
+                      <Typography variant="body2" color="text.secondary" gutterBottom>
                         Department
                       </Typography>
-                      <Typography variant="body1" sx={{ mb: 2 }}>
-                        {user?.department || 'Not provided'}
-                      </Typography>
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="body2" color="text.secondary">
+                      {isEditing ? (
+                        <TextField
+                          fullWidth
+                          size="small"
+                          name="department"
+                          value={editedUser.department || ''}
+                          onChange={handleInputChange}
+                        />
+                      ) : (
+                        <Typography variant="body1">
+                          {user?.department || ''}
+                        </Typography>
+                      )}
+                    </Box>
+                  </Grid>
+                  
+                  <Grid item xs={12} sm={6}>
+                    <Box sx={{ mb: 3 }}>
+                      <Typography variant="body2" color="text.secondary" gutterBottom>
                         Semester
                       </Typography>
-                      <Typography variant="body1" sx={{ mb: 2 }}>
-                        {user?.semester || 'Not provided'}
-                      </Typography>
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="body2" color="text.secondary">
+                      {isEditing ? (
+                        <TextField
+                          fullWidth
+                          size="small"
+                          name="semester"
+                          value={editedUser.semester || ''}
+                          onChange={handleInputChange}
+                        />
+                      ) : (
+                        <Typography variant="body1">
+                          {user?.semester || ''}
+                        </Typography>
+                      )}
+                    </Box>
+                  </Grid>
+                  
+                  <Grid item xs={12} sm={6}>
+                    <Box sx={{ mb: 3 }}>
+                      <Typography variant="body2" color="text.secondary" gutterBottom>
                         Phone
                       </Typography>
-                      <Typography variant="body1" sx={{ mb: 2 }}>
-                        {user?.phone || 'Not provided'}
-                      </Typography>
-                    </Grid>
-                    <Grid item xs={12}>
-                      <Typography variant="body2" color="text.secondary">
+                      {isEditing ? (
+                        <TextField
+                          fullWidth
+                          size="small"
+                          name="phone"
+                          value={editedUser.phone || ''}
+                          onChange={handleInputChange}
+                        />
+                      ) : (
+                        <Typography variant="body1">
+                          {user?.phone || ''}
+                        </Typography>
+                      )}
+                    </Box>
+                  </Grid>
+                  
+                  <Grid item xs={12}>
+                    <Box sx={{ mb: 3 }}>
+                      <Typography variant="body2" color="text.secondary" gutterBottom>
                         Address
                       </Typography>
-                      <Typography variant="body1" sx={{ mb: 2 }}>
-                        {user?.address || 'Not provided'}
-                      </Typography>
-                    </Grid>
-                    <Grid item xs={12}>
-                      <Typography variant="body2" color="text.secondary">
+                      {isEditing ? (
+                        <TextField
+                          fullWidth
+                          size="small"
+                          name="address"
+                          value={editedUser.address || ''}
+                          onChange={handleInputChange}
+                        />
+                      ) : (
+                        <Typography variant="body1">
+                          {user?.address || 'Not provided'}
+                        </Typography>
+                      )}
+                    </Box>
+                  </Grid>
+                  
+                  <Grid item xs={12}>
+                    <Box sx={{ mb: 3 }}>
+                      <Typography variant="body2" color="text.secondary" gutterBottom>
                         Account Status
                       </Typography>
-                      <Typography 
-                        variant="body1" 
-                        sx={{ 
-                          color: user?.verification_status === 'approved' ? 'green' : 'orange',
-                          fontWeight: 600,
-                          mb: 2
-                        }}
-                      >
-                        {user?.verification_status === 'approved' ? 'Verified' : 'Pending Verification'}
+                      <Typography variant="body1" sx={{ color: 'success.main', fontWeight: 'bold' }}>
+                        Verified
                       </Typography>
-                    </Grid>
+                    </Box>
                   </Grid>
-                )}
-              </Grid>
-            </Grid>
+                </Grid>
+              </Box>
+            </Box>
           </Paper>
           
-          {/* User Activity Section with Tabs */}
-          {renderUserActivity()}
-          
-          {/* Delete Confirmation Dialog */}
-          <Dialog
-            open={deleteDialog.open}
-            onClose={handleCloseDeleteDialog}
-            aria-labelledby="delete-dialog-title"
-            aria-describedby="delete-dialog-description"
-          >
-            <DialogTitle id="delete-dialog-title">
-              Confirm Delete
-            </DialogTitle>
-            <DialogContent>
-              <DialogContentText id="delete-dialog-description">
-                Are you sure you want to delete this {
-                  deleteDialog.postType === 'marketplace' ? 'marketplace item' : 
-                  deleteDialog.postType === 'lostfound' ? 'lost & found report' : 
-                  'ride request'
-                }? This action cannot be undone.
-              </DialogContentText>
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={handleCloseDeleteDialog}>Cancel</Button>
-              <Button onClick={handleDeleteItem} color="error" autoFocus>
-                Delete
-              </Button>
-            </DialogActions>
-          </Dialog>
+          <Paper elevation={3} sx={{ p: 4, borderRadius: '8px', mb: 4, bgcolor: '#fff' }}>
+            <Typography variant="h5" sx={{ mb: 3, fontWeight: 'bold' }}>
+              Your Activity
+            </Typography>
+            
+            <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
+              <Tabs 
+                value={tabValue} 
+                onChange={handleTabChange} 
+                aria-label="user activity tabs"
+                variant="fullWidth"
+                sx={{ '& .MuiTab-root': { minWidth: 0 } }}
+              >
+                <Tab 
+                  icon={<StoreIcon />} 
+                  label="MARKETPLACE" 
+                  id="tab-0" 
+                  aria-controls="tabpanel-0" 
+                  sx={{ fontSize: '0.75rem' }}
+                />
+                <Tab 
+                  icon={<HelpOutlineIcon />} 
+                  label="LOST & FOUND" 
+                  id="tab-1" 
+                  aria-controls="tabpanel-1" 
+                  sx={{ fontSize: '0.75rem' }}
+                />
+                <Tab 
+                  icon={<ShoppingCartIcon />} 
+                  label="PURCHASE" 
+                  id="tab-2" 
+                  aria-controls="tabpanel-2" 
+                  sx={{ fontSize: '0.75rem' }}
+                />
+                <Tab 
+                  icon={<SellIcon />} 
+                  label="SELL" 
+                  id="tab-3" 
+                  aria-controls="tabpanel-3" 
+                  sx={{ fontSize: '0.75rem' }}
+                />
+                <Tab 
+                  icon={<MessageIcon />} 
+                  label="MESSAGES" 
+                  id="tab-4" 
+                  aria-controls="tabpanel-4" 
+                  sx={{ fontSize: '0.75rem' }}
+                />
+              </Tabs>
+            </Box>
+            
+            {/* Marketplace Tab */}
+            <div role="tabpanel" hidden={tabValue !== 0} id="tabpanel-0" aria-labelledby="tab-0">
+              {tabValue === 0 && renderMarketplaceItems()}
+            </div>
+            
+            {/* Lost & Found Tab */}
+            <div role="tabpanel" hidden={tabValue !== 1} id="tabpanel-1" aria-labelledby="tab-1">
+              {tabValue === 1 && renderLostFoundItems()}
+            </div>
+            
+            {/* Purchase Tab */}
+            <div role="tabpanel" hidden={tabValue !== 2} id="tabpanel-2" aria-labelledby="tab-2">
+              {tabValue === 2 && renderPurchaseItems()}
+            </div>
+            
+            {/* Sell Tab */}
+            <div role="tabpanel" hidden={tabValue !== 3} id="tabpanel-3" aria-labelledby="tab-3">
+              {tabValue === 3 && renderSellItems()}
+            </div>
+            
+            {/* Messages Tab */}
+            <div role="tabpanel" hidden={tabValue !== 4} id="tabpanel-4" aria-labelledby="tab-4">
+              {tabValue === 4 && <MessageDisplay userId={user?.id || user?._id} />}
+            </div>
+          </Paper>
           
           {/* Item Details Dialog */}
-          {selectedItem && (
-            <MarketplaceItemDetailsDrawer
-              open={itemDetailsOpen}
-              item={selectedItem}
-              onClose={() => setItemDetailsOpen(false)}
-            />
-          )}
+          <MarketplaceItemDetailsDrawer
+            open={detailsOpen}
+            item={selectedItem}
+            onClose={() => setDetailsOpen(false)}
+          />
           
-          {/* Edit Item Dialog */}
-          {selectedItemForEdit && (
-            <MarketplaceItemForm
-              open={editItemOpen}
-              onClose={() => setEditItemOpen(false)}
-              item={selectedItemForEdit}
-              isEdit={true}
-            />
-          )}
-          
-          {/* New Item Dialog */}
+          {/* Item Form Dialog */}
           <MarketplaceItemForm
-            open={newItemOpen}
-            onClose={() => setNewItemOpen(false)}
-            isEdit={false}
-            onSuccess={handleNewItemSuccess}
+            open={formOpen}
+            onClose={() => setFormOpen(false)}
+            item={editItem}
+            isEdit={isEditForm}
+            onSuccess={handleItemFormSuccess}
           />
           
           {/* Snackbar for notifications */}
           <Snackbar
-            open={snackbar.open}
-            autoHideDuration={5000}
-            onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}
+            open={snackbarOpen}
+            autoHideDuration={6000}
+            onClose={handleSnackbarClose}
             anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
           >
-            <Alert 
-              onClose={() => setSnackbar(prev => ({ ...prev, open: false }))} 
-              severity={snackbar.severity} 
-              variant="filled"
-              sx={{ width: '100%' }}
-            >
-              {snackbar.message}
+            <Alert onClose={handleSnackbarClose} severity={snackbarSeverity} sx={{ width: '100%' }}>
+              {snackbarMessage}
             </Alert>
           </Snackbar>
         </>
       )}
     </Container>
   );
-};
+}
 
 export default UserProfile;

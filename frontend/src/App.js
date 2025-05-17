@@ -15,12 +15,11 @@ const Login = lazy(() => import('./pages/Login'));
 const Register = lazy(() => import('./pages/Register'));
 const AdminLogin = lazy(() => import('./pages/AdminLogin'));
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
-const AdminAnnouncement = lazy(() => import('./pages/AdminAnnouncement'));
 const UserProfile = lazy(() => import('./pages/UserProfile'));
 const Marketplace = lazy(() => import('./pages/Marketplace'));
 const Payment = lazy(() => import('./pages/Payment'));
 const LostFound = lazy(() => import('./pages/LostFound'));
-const RideBooking = lazy(() => import('./pages/RideBooking'));
+const RideShare = lazy(() => import('./pages/RideShare'));
 const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
 const ResetPassword = lazy(() => import('./pages/ResetPassword'));
 
@@ -114,12 +113,6 @@ function App() {
               </AdminRoute>
             } />
             
-            <Route path="/admin/announcements" element={
-              <AdminRoute>
-                <AdminAnnouncement />
-              </AdminRoute>
-            } />
-            
             {/* Protected user routes - accessible only to regular users */}
             <Route path="/profile" element={
               <ProtectedRoute>
@@ -145,12 +138,12 @@ function App() {
             } />
             <Route path="/ride-booking" element={
               <SharedRoute>
-                <RideBooking />
+                <RideShare />
               </SharedRoute>
             } />
             <Route path="/ride-sharing" element={
               <SharedRoute>
-                <RideBooking />
+                <RideShare />
               </SharedRoute>
             } />
           </Routes>

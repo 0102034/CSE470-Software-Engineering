@@ -60,46 +60,6 @@ const rideService = {
     } catch (error) {
       throw error.response?.data || error.message;
     }
-  },
-  
-  // Book a ride
-  bookRide: async (postId, paymentData = null) => {
-    try {
-      const response = await axios.post(`${API_URL}/ride/share/posts/${postId}/book`, paymentData);
-      return response.data;
-    } catch (error) {
-      throw error.response?.data || error.message;
-    }
-  },
-  
-  // Get user's bookings
-  getUserBookings: async () => {
-    try {
-      const response = await axios.get(`${API_URL}/ride/share/bookings`);
-      return response.data;
-    } catch (error) {
-      throw error.response?.data || error.message;
-    }
-  },
-  
-  // Cancel a booking
-  cancelBooking: async (bookingId, reason) => {
-    try {
-      const response = await axios.post(`${API_URL}/ride/share/bookings/${bookingId}/cancel`, { reason });
-      return response.data;
-    } catch (error) {
-      throw error.response?.data || error.message;
-    }
-  },
-  
-  // Complete payment for a booking
-  completePayment: async (bookingId, paymentDetails) => {
-    try {
-      const response = await axios.post(`${API_URL}/ride/share/bookings/${bookingId}/payment`, paymentDetails);
-      return response.data;
-    } catch (error) {
-      throw error.response?.data || error.message;
-    }
   }
 };
 

@@ -5,10 +5,13 @@ from flask_caching import Cache
 from flask_compress import Compress
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from flask_socketio import SocketIO
+from flask_cors import CORS
 from dotenv import load_dotenv
 import os
 import logging
+
+# Import socketio from extensions
+from app.extensions import socketio
 
 # Load environment variables
 load_dotenv()
@@ -37,8 +40,6 @@ limiter = Limiter(
     default_limits=["1000 per minute"],  # More lenient default limit
     storage_uri="memory://"
 )
-# Initialize SocketIO with CORS support
-socketio = SocketIO(cors_allowed_origins=["http://localhost:3000"], logger=True, engineio_logger=True)
 
 def create_app():
     app = Flask(__name__)
@@ -59,11 +60,24 @@ def create_app():
     app.config['COMPRESS_LEVEL'] = 6
     app.config['COMPRESS_MIN_SIZE'] = 500
     
+    # Configure CORS
+    app.config['CORS_HEADERS'] = 'Content-Type,Authorization,X-Requested-With'
+    
     # Initialize extensions
     jwt.init_app(app)
     cache.init_app(app)
     compress.init_app(app)
     limiter.init_app(app)
+    
+    # Initialize CORS with more permissive settings
+    CORS(app, resources={
+        r"/*": {
+            "origins": "*",
+            "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
+            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+            "supports_credentials": True
+        }
+    })
     
     # Register blueprints
     from app.controllers.auth import auth_bp
@@ -71,10 +85,13 @@ def create_app():
     from app.controllers.ride import ride_bp
     from app.controllers.admin import admin_bp
     from app.controllers.users import users_bp
-    from app.controllers.messages import message_bp
     from app.routes.notification_routes import notification_bp
     from app.routes.marketplace_routes import marketplace_bp
+    from app.routes.message_routes import message_bp
     from app.routes.announcement_routes import announcement_bp
+    from app.controllers.admin_rides import admin_rides_bp
+    from app.controllers.admin_lost_found import admin_lost_found_bp
+    from app.controllers.admin_marketplace import admin_marketplace_bp
     
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(marketplace_bp, url_prefix='/api/marketplace')
@@ -82,9 +99,13 @@ def create_app():
     app.register_blueprint(ride_bp, url_prefix='/api/ride')
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
     app.register_blueprint(users_bp, url_prefix='/api/users')
-    app.register_blueprint(message_bp, url_prefix='/api/messages')
     app.register_blueprint(notification_bp, url_prefix='/api/notifications')
-    app.register_blueprint(announcement_bp, url_prefix='/api/announcements')
+    app.register_blueprint(message_bp, url_prefix='/api/messages')
+    # Register announcement blueprint with two different prefixes for admin and public routes
+    app.register_blueprint(announcement_bp)
+    app.register_blueprint(admin_rides_bp, url_prefix='/api/admin')
+    app.register_blueprint(admin_lost_found_bp, url_prefix='/api/admin')
+    app.register_blueprint(admin_marketplace_bp, url_prefix='/api/admin')
     
     # Serve uploaded files with caching
     @app.route('/uploads/<path:filename>')
@@ -92,21 +113,11 @@ def create_app():
         uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'uploads')
         return send_from_directory(uploads_dir, filename)
     
-    # Add CORS headers to allow cross-origin requests
+    # Add cache headers
     @app.after_request
-    def add_cors_headers(response):
-        response.headers['Access-Control-Allow-Origin'] = 'http://localhost:3000'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type,Authorization,X-Requested-With'
-        response.headers['Access-Control-Allow-Methods'] = 'GET,PUT,POST,DELETE,OPTIONS'
-        response.headers['Access-Control-Allow-Credentials'] = 'true'
+    def add_cache_headers(response):
         response.headers['Cache-Control'] = 'public, max-age=300'  # Cache for 5 minutes by default
         return response
-    
-    # Handle OPTIONS requests
-    @app.route('/', defaults={'path': ''}, methods=['OPTIONS'])
-    @app.route('/<path:path>', methods=['OPTIONS'])
-    def handle_options(path):
-        return '', 200
     
     # Add basic error handlers
     @app.errorhandler(404)
@@ -121,16 +132,5 @@ def create_app():
     # Enable debug logging
     logging.basicConfig(level=logging.DEBUG)
     app.logger.setLevel(logging.DEBUG)
-    
-    # Initialize SocketIO with the app
-    socketio.init_app(
-        app, 
-        cors_allowed_origins=["http://localhost:3000"], 
-        ping_timeout=60,
-        ping_interval=25
-    )
-    
-    # Import socket handlers after socketio is initialized
-    from app.sockets import handle_connect, handle_disconnect, handle_authenticate, handle_join_conversation, handle_leave_conversation, handle_send_message, handle_read_message
     
     return app 

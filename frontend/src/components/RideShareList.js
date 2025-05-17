@@ -4,7 +4,7 @@ import {
 } from '@mui/material';
 import axios from 'axios';
 
-const RideShareList = ({ userId, adminView, onEdit, onDelete, onBookNow, onContact, items }) => {
+const RideShareList = ({ userId, adminView, onEdit, onDelete, items }) => {
   const [rides, setRides] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -18,26 +18,15 @@ const RideShareList = ({ userId, adminView, onEdit, onDelete, onBookNow, onConta
     }
     
     // Otherwise fetch from API
+    let url = '/api/ride/share';
+    if (userId) url += `/user`;
     setLoading(true);
-    const token = localStorage.getItem('token');
-    
-    // Use the correct endpoint based on whether we're fetching for a specific user
-    let url = 'http://localhost:5000/api/ride/posts';
-    if (userId) {
-      url = `http://localhost:5000/api/ride/posts/user/${userId}`;
-    }
-    
-    axios.get(url, {
-      headers: {
-        'Authorization': `Bearer ${token}`
-      }
-    })
+    axios.get(url)
       .then(res => {
         setRides(res.data || []);
         setError('');
       })
       .catch(err => {
-        console.error('Error fetching ride shares:', err);
         setError('Failed to load ride shares.');
       })
       .finally(() => setLoading(false));
@@ -82,29 +71,8 @@ const RideShareList = ({ userId, adminView, onEdit, onDelete, onBookNow, onConta
                   <Button size="small" color="primary" onClick={() => onEdit && onEdit(ride)}>Edit</Button>
                   <Button size="small" color="error" onClick={() => onDelete && onDelete(ride)}>Delete</Button>
                 </>
-              ) : ride.is_creator ? (
-                <>
-                  <Button size="small" color="primary" onClick={() => onEdit && onEdit(ride)}>Edit</Button>
-                  <Button size="small" color="error" onClick={() => onDelete && onDelete(ride)}>Delete</Button>
-                </>
               ) : (
-                <>
-                  <Button 
-                    size="small" 
-                    color="primary" 
-                    onClick={() => onBookNow && onBookNow(ride)}
-                    disabled={ride.status === 'booked'}
-                  >
-                    {ride.status === 'booked' ? 'Already Booked' : 'Book Now'}
-                  </Button>
-                  <Button 
-                    size="small" 
-                    color="secondary" 
-                    onClick={() => onContact && onContact(ride)}
-                  >
-                    Contact
-                  </Button>
-                </>
+                <Button size="small" disabled>Contact</Button>
               )}
             </CardActions>
           </Card>

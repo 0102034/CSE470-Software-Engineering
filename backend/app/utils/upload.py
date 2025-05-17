@@ -30,7 +30,7 @@ def save_image(file, folder):
     # Create folder if it doesn't exist
     upload_folder = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'uploads', folder)
     if not os.path.exists(upload_folder):
-        os.makedirs(upload_folder)
+        os.makedirs(upload_folder, exist_ok=True)
     
     # Save the file
     file_path = os.path.join(upload_folder, unique_filename)

@@ -1,453 +1,1441 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import withNotificationBanner from '../components/withNotificationBanner';
-import { API_URL } from '../config';
+import SimpleMessageDialog from '../components/SimpleMessageDialog';
+import {
+  Container, Typography, Grid, Card, CardContent, CardActions,
+  Button, Box, Tabs, Tab, TextField, Dialog, DialogTitle,
+  DialogContent, DialogActions, IconButton, Paper, Table,
+  TableBody, TableCell, TableContainer, TableHead, TableRow,
+  Chip, Divider, FormControl, InputLabel, Select, MenuItem,
+  CircularProgress, Alert, Snackbar, Stack, FormControlLabel, Switch,
+  OutlinedInput, Avatar
+} from '@mui/material';
+import {
+  Close as CloseIcon,
+  Add as AddIcon,
+  Edit as EditIcon,
+  Delete as DeleteIcon,
+  Search as SearchIcon,
+  DirectionsCar as CarIcon,
+  Phone as PhoneIcon,
+  CheckCircle as CheckCircleIcon,
+  TwoWheeler as TwoWheelerIcon,
+  AttachMoney as AttachMoneyIcon,
+  EventSeat as EventSeatIcon,
+  Cancel as CancelIcon,
+  Chat as ChatIcon
+} from '@mui/icons-material';
 import axios from 'axios';
-import ContactButton from '../components/ContactButton';
-import MessageChat from '../components/MessageChat';
+import '../AppBackgrounds.css';
+
+// TabPanel component for tab content
+function TabPanel(props) {
+  const { children, value, index, ...other } = props;
+
+  return (
+    <div
+      role="tabpanel"
+      hidden={value !== index}
+      id={`simple-tabpanel-${index}`}
+      aria-labelledby={`simple-tab-${index}`}
+      {...other}
+    >
+      {value === index && (
+        <Box sx={{ pt: 3 }}>
+          {children}
+        </Box>
+      )}
+    </div>
+  );
+}
 
 const RideShare = () => {
-  // Create a class-based implementation for pure JavaScript
-  class RideShareComponent {
-    constructor() {
-      this.state = {
-        rides: [],
-        loading: true,
-        error: null,
-        currentUser: JSON.parse(localStorage.getItem('user')) || {},
-        selectedRide: null,
-        showChatModal: false,
-        chatData: null
+  const navigate = useNavigate();
+  const [tabValue, setTabValue] = useState(0);
+  const [availableRides, setAvailableRides] = useState([]);
+  const [myBookings, setMyBookings] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [successMessage, setSuccessMessage] = useState(null);
+  
+  // Current user info
+  const [currentUserId, setCurrentUserId] = useState('');
+  const [currentUserEmail, setCurrentUserEmail] = useState('');
+  
+  // Post ride dialog
+  const [openPostDialog, setOpenPostDialog] = useState(false);
+  const [newRide, setNewRide] = useState({
+    from_location: '',
+    from_location_custom: '',
+    to_location: '',
+    to_location_custom: '',
+    date: '',
+    time: '',
+    vehicle_type: 'car',
+    phone_number: '',
+    seats_available: 1,
+    is_paid: false,
+    fee_per_seat: 0,
+    payment_method: 'cash',
+    description: ''
+  });
+  
+  // Major locations in Dhaka for suggestions
+  const majorLocations = [
+    'Merul Badda',
+    'BRAC University',
+    'Gulshan',
+    'Banani',
+    'Uttara',
+    'Mohakhali',
+    'Dhanmondi',
+    'Mirpur',
+    'Bashundhara',
+    'Airport',
+    'Motijheel',
+    'Shahbag',
+    'Farmgate',
+    'Mohammadpur',
+    'Tejgaon',
+    'Rampura',
+    'Malibagh',
+    'Khilgaon',
+    'Jatrabari',
+    'New Market'
+  ];
+  
+  // Book ride dialog
+  const [openBookDialog, setOpenBookDialog] = useState(false);
+  const [selectedRide, setSelectedRide] = useState(null);
+  const [bookingSeats, setBookingSeats] = useState(1);
+  
+  // Cancel booking dialog
+  const [openCancelDialog, setOpenCancelDialog] = useState(false);
+  const [selectedBooking, setSelectedBooking] = useState(null);
+  const [cancelReason, setCancelReason] = useState('');
+  
+  // Delete ride dialog
+  const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
+  const [rideToDelete, setRideToDelete] = useState(null);
+  
+  // Edit ride dialog
+  const [openEditDialog, setOpenEditDialog] = useState(false);
+  const [rideToEdit, setRideToEdit] = useState(null);
+  
+  // Contact dialog
+  const [contactDialogOpen, setContactDialogOpen] = useState(false);
+  const [selectedContactRide, setSelectedContactRide] = useState(null);
+
+  // Get current user on component mount
+  useEffect(() => {
+    const fetchCurrentUser = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+          navigate('/login');
+          return;
+        }
+        
+        let userId = null;
+        let userEmail = null;
+        
+        // Decode the JWT token to get user information without making an API call
+        const tokenParts = token.split('.');
+        if (tokenParts.length === 3) {
+          try {
+            const payload = JSON.parse(atob(tokenParts[1]));
+            console.log('Token payload:', payload);
+            if (payload.sub) {
+              userId = payload.sub;
+              setCurrentUserId(userId);
+              // If email is in the token, set it
+              if (payload.email) {
+                userEmail = payload.email;
+                setCurrentUserEmail(userEmail);
+              }
+            } else if (payload.identity) {
+              // Alternative JWT format
+              userId = payload.identity;
+              setCurrentUserId(userId);
+            }
+          } catch (e) {
+            console.error('Error decoding token:', e);
+          }
+        }
+        
+        // Also try the API endpoint as a backup
+        try {
+          const response = await axios.get('http://localhost:5000/api/auth/me', {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          
+          if (response.data && response.data._id) {
+            userId = response.data._id;
+            setCurrentUserId(userId);
+          }
+          if (response.data && response.data.email) {
+            userEmail = response.data.email;
+            setCurrentUserEmail(userEmail);
+          }
+        } catch (apiError) {
+          console.log('API endpoint for current user not available, using token data');
+          
+          // If we still don't have a userId, try to get it from localStorage as a last resort
+          if (!userId) {
+            const userData = localStorage.getItem('user');
+            if (userData) {
+              try {
+                const parsedUser = JSON.parse(userData);
+                if (parsedUser._id) {
+                  userId = parsedUser._id;
+                  setCurrentUserId(userId);
+                }
+                if (parsedUser.email) {
+                  userEmail = parsedUser.email;
+                  setCurrentUserEmail(userEmail);
+                }
+              } catch (e) {
+                console.error('Error parsing user data from localStorage:', e);
+              }
+            }
+          }
+        }
+        
+        // Log the final result for debugging
+        console.log('Final currentUserId:', userId);
+        
+        // If we still don't have a userId, show an error
+        if (!userId) {
+          console.error('Failed to retrieve user ID from all available sources');
+          setError('Authentication issue: Unable to retrieve your user information. Please try logging in again.');
+        }
+      } catch (error) {
+        console.error('Error fetching current user:', error);
+        if (error.response && error.response.status === 401) {
+          navigate('/login');
+        }
+      }
+    };
+    
+    fetchCurrentUser();
+  }, [navigate]);
+
+  // Fetch rides and bookings when tab changes or after actions
+  useEffect(() => {
+    const fetchRides = async () => {
+      setLoading(true);
+      setError(null);
+      
+      try {
+        if (tabValue === 0) {
+          // Fetch available rides
+          const response = await axios.get('/api/ride/share');
+          
+          // Filter out rides with no seats available
+          const availableRidesWithSeats = response.data.filter(ride => 
+            ride.seats_available > 0 && ride.status !== 'booked'
+          );
+          
+          console.log('Available rides with seats:', availableRidesWithSeats.length, 'out of', response.data.length);
+          setAvailableRides(availableRidesWithSeats);
+        } else {
+          // Fetch user's bookings
+          const response = await axios.get('/api/ride/bookings');
+          setMyBookings(response.data);
+        }
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        setError('Failed to load data. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchRides();
+  }, [tabValue]);
+
+  // Format date for display
+  const formatDate = (dateString) => {
+    const options = { year: 'numeric', month: 'short', day: 'numeric' };
+    return new Date(dateString).toLocaleDateString(undefined, options);
+  };
+  
+  // Format time to 12-hour format
+  const formatTime = (timeString) => {
+    // Parse the time string (expected format: HH:MM)
+    const [hours, minutes] = timeString.split(':');
+    const hour = parseInt(hours, 10);
+    
+    // Convert to 12-hour format
+    const period = hour >= 12 ? 'PM' : 'AM';
+    const hour12 = hour % 12 || 12; // Convert 0 to 12 for 12 AM
+    
+    return `${hour12}:${minutes} ${period}`;
+  };
+
+  // Handle tab change
+  const handleTabChange = (event, newValue) => {
+    setTabValue(newValue);
+  };
+
+  // Handle input change for new ride form
+  const handleInputChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    
+    // Special handling for location fields
+    if (name === 'from_location' && value === 'other') {
+      // When 'other' is selected, initialize the custom field if not already set
+      setNewRide(prev => ({
+        ...prev,
+        [name]: value,
+        from_location_custom: prev.from_location_custom || ''
+      }));
+    } else if (name === 'to_location' && value === 'other') {
+      // When 'other' is selected, initialize the custom field if not already set
+      setNewRide(prev => ({
+        ...prev,
+        [name]: value,
+        to_location_custom: prev.to_location_custom || ''
+      }));
+    } else {
+      // Standard handling for all other fields
+      setNewRide(prev => ({
+        ...prev,
+        [name]: type === 'checkbox' ? checked : value
+      }));
+    }
+  };
+
+  // Post or update a ride
+  const handlePostRide = async () => {
+    try {
+      // Check if custom locations need to be processed
+      let formData = {...newRide};
+      
+      // Handle custom 'from' location
+      if (formData.from_location === 'other') {
+        if (!formData.from_location_custom) {
+          setError('Please enter a custom pickup location');
+          return;
+        }
+        formData.from_location = formData.from_location_custom;
+      }
+      
+      // Handle custom 'to' location
+      if (formData.to_location === 'other') {
+        if (!formData.to_location_custom) {
+          setError('Please enter a custom destination location');
+          return;
+        }
+        formData.to_location = formData.to_location_custom;
+      }
+      
+      // Validate required fields
+      if (!formData.from_location || !formData.to_location || !formData.date || !formData.time || !formData.phone_number) {
+        setError('Please fill in all required fields');
+        return;
+      }
+
+      // Validate paid ride fields
+      if (formData.is_paid && (!formData.fee_per_seat || !formData.payment_method)) {
+        setError('Please specify fee per seat and payment method for paid rides');
+        return;
+      }
+
+      setLoading(true);
+      
+      // Prepare data for API - remove custom fields that shouldn't be sent to the backend
+      const rideData = {
+        ...formData,
+        from_location_custom: undefined,
+        to_location_custom: undefined,
+        seats_available: parseInt(formData.seats_available),
+        fee_per_seat: formData.is_paid ? parseInt(formData.fee_per_seat) : 0
       };
       
-      this.containerRef = null;
-      this.contactButtonRefs = {};
-      this.chatContainerRef = null;
-    }
-    
-    // Initialize the component
-    init(containerElement) {
-      this.containerRef = containerElement;
-      this.loadRides();
-      this.render();
-    }
-    
-    // Load rides from the API
-    async loadRides() {
-      try {
-        this.setState({ loading: true });
-        const token = localStorage.getItem('token');
-        
-        if (!token) {
-          this.setState({ 
-            loading: false,
-            error: 'Please log in to view ride shares'
-          });
-          return;
-        }
-        
-        const response = await axios.get(`${API_URL}/api/ride`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        
-        if (response.data.status === 'success') {
-          this.setState({ 
-            rides: response.data.rides || [],
-            loading: false
-          });
-        } else {
-          throw new Error(response.data.message || 'Failed to load rides');
-        }
-      } catch (error) {
-        console.error('Error loading rides:', error);
-        this.setState({ 
-          loading: false,
-          error: error.message || 'Failed to load rides'
-        });
-      }
-      
-      // Re-render with updated state
-      this.render();
-    }
-    
-    // Update component state
-    setState(newState) {
-      this.state = { ...this.state, ...newState };
-    }
-    
-    // Handle booking a ride
-    async handleBookNow(ride) {
-      try {
-        const token = localStorage.getItem('token');
-        
-        if (!token) {
-          alert('Please log in to book a ride');
-          return;
-        }
-        
-        // Check if user is the creator of the ride
-        if (ride.user_id === this.state.currentUser._id || ride.user_id === this.state.currentUser.id) {
-          alert('You cannot book your own ride');
-          return;
-        }
-        
-        const response = await axios.post(`${API_URL}/api/ride/${ride._id}/book`, {}, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        
-        if (response.data.status === 'success') {
-          alert('Ride booked successfully!');
-          this.loadRides(); // Reload rides to update status
-        } else {
-          throw new Error(response.data.message || 'Failed to book ride');
-        }
-      } catch (error) {
-        console.error('Error booking ride:', error);
-        alert(error.message || 'Failed to book ride');
-      }
-    }
-    
-    // Handle contact initiated callback from ContactButton
-    handleContactInitiated(data) {
-      this.setState({
-        showChatModal: true,
-        chatData: {
-          postId: data.postId,
-          postType: 'ride_share',
-          otherUser: data.postCreator
+      // Remove undefined fields
+      Object.keys(rideData).forEach(key => {
+        if (rideData[key] === undefined) {
+          delete rideData[key];
         }
       });
       
-      this.renderChatModal();
-    }
-    
-    // Close chat modal
-    closeChatModal() {
-      this.setState({
-        showChatModal: false,
-        chatData: null
+      // Determine if this is an edit or a new post
+      const isEditing = !!rideData._id;
+      console.log('Operation:', isEditing ? 'Editing ride' : 'Creating new ride', rideData);
+      
+      // Make the API call
+      const response = await axios.post('/api/ride/share', rideData);
+      
+      // Fetch updated rides to refresh the list
+      const updatedRidesResponse = await axios.get('/api/ride/share');
+      setAvailableRides(updatedRidesResponse.data);
+      
+      // Reset the form
+      setOpenPostDialog(false);
+      setRideToEdit(null);
+      setNewRide({
+        from_location: '',
+        from_location_custom: '',
+        to_location: '',
+        to_location_custom: '',
+        date: '',
+        time: '',
+        vehicle_type: 'car',
+        phone_number: '',
+        seats_available: 1,
+        is_paid: false,
+        fee_per_seat: 0,
+        payment_method: 'in_person',
+        description: ''
       });
       
-      this.render();
+      // Show appropriate success message
+      setSuccessMessage(isEditing ? 'Ride updated successfully!' : 'Ride posted successfully!');
+    } catch (error) {
+      console.error('Error posting ride:', error);
+      setError(error.response?.data?.error || 'Failed to post ride. Please try again.');
+    } finally {
+      setLoading(false);
     }
-    
-    // Render chat modal
-    renderChatModal() {
-      if (!this.state.showChatModal || !this.state.chatData) return;
-      
-      // Create modal container if it doesn't exist
-      let modalContainer = document.getElementById('chat-modal-container');
-      if (!modalContainer) {
-        modalContainer = document.createElement('div');
-        modalContainer.id = 'chat-modal-container';
-        modalContainer.style.position = 'fixed';
-        modalContainer.style.top = '0';
-        modalContainer.style.left = '0';
-        modalContainer.style.width = '100%';
-        modalContainer.style.height = '100%';
-        modalContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
-        modalContainer.style.display = 'flex';
-        modalContainer.style.justifyContent = 'center';
-        modalContainer.style.alignItems = 'center';
-        modalContainer.style.zIndex = '1000';
-        document.body.appendChild(modalContainer);
+  };
+
+  // Open book dialog
+  const handleBookClick = (ride) => {
+    setSelectedRide(ride);
+    setBookingSeats(1);
+    setOpenBookDialog(true);
+  };
+
+  // Book a ride
+  const handleBookRide = async () => {
+    try {
+      if (!selectedRide) {
+        setError('No ride selected');
+        return;
       }
       
-      // Clear modal container
-      modalContainer.innerHTML = '';
+      if (bookingSeats < 1 || bookingSeats > selectedRide.seats_available) {
+        setError(`Please select between 1 and ${selectedRide.seats_available} seats`);
+        return;
+      }
       
-      // Create modal content
-      const modalContent = document.createElement('div');
-      modalContent.className = 'chat-modal-content';
-      modalContent.style.backgroundColor = 'white';
-      modalContent.style.padding = '20px';
-      modalContent.style.borderRadius = '5px';
-      modalContent.style.width = '600px';
-      modalContent.style.maxWidth = '90%';
-      modalContent.style.maxHeight = '80vh';
-      modalContent.style.overflow = 'hidden';
-      modalContent.style.display = 'flex';
-      modalContent.style.flexDirection = 'column';
+      setLoading(true);
       
-      // Create modal header
-      const modalHeader = document.createElement('div');
-      modalHeader.className = 'chat-modal-header';
-      modalHeader.style.display = 'flex';
-      modalHeader.style.justifyContent = 'space-between';
-      modalHeader.style.alignItems = 'center';
-      modalHeader.style.marginBottom = '15px';
+      // Prepare booking data
+      const bookingData = {
+        ride_id: selectedRide._id,
+        seats: bookingSeats,
+        pickup_location: selectedRide.from_location,
+        dropoff_location: selectedRide.to_location
+      };
       
-      const modalTitle = document.createElement('h3');
-      modalTitle.textContent = `Chat with ${this.state.chatData.otherUser.name || 'User'}`;
-      modalTitle.style.margin = '0';
+      await axios.post('/api/ride/bookings', bookingData);
       
-      const closeButton = document.createElement('button');
-      closeButton.textContent = '×';
-      closeButton.style.background = 'none';
-      closeButton.style.border = 'none';
-      closeButton.style.fontSize = '20px';
-      closeButton.style.cursor = 'pointer';
-      closeButton.onclick = () => this.closeChatModal();
+      // Update available rides
+      setAvailableRides(prev => 
+        prev.map(ride => 
+          ride._id === selectedRide._id 
+            ? { ...ride, seats_available: ride.seats_available - bookingSeats } 
+            : ride
+        )
+      );
       
-      modalHeader.appendChild(modalTitle);
-      modalHeader.appendChild(closeButton);
-      modalContent.appendChild(modalHeader);
+      setOpenBookDialog(false);
+      setSuccessMessage('Ride booked successfully!');
       
-      // Create chat container
-      const chatContainer = document.createElement('div');
-      chatContainer.className = 'chat-container';
-      chatContainer.style.flexGrow = '1';
-      chatContainer.style.overflow = 'hidden';
-      modalContent.appendChild(chatContainer);
-      
-      // Add modal to container
-      modalContainer.appendChild(modalContent);
-      
-      // Initialize message chat
-      const messageChat = new MessageChat();
-      messageChat.init({
-        postId: this.state.chatData.postId,
-        postType: this.state.chatData.postType,
-        otherUser: this.state.chatData.otherUser,
-        container: chatContainer
+      // Refresh the bookings tab
+      if (tabValue === 1) {
+        const response = await axios.get('/api/ride/bookings');
+        setMyBookings(response.data);
+      }
+    } catch (error) {
+      console.error('Error booking ride:', error);
+      setError(error.response?.data?.error || 'Failed to book ride. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Open cancel dialog
+  const handleCancelClick = (booking) => {
+    setSelectedBooking(booking);
+    setCancelReason('');
+    setOpenCancelDialog(true);
+  };
+
+  // Cancel a booking
+  const handleCancelBooking = async () => {
+    try {
+      setLoading(true);
+      await axios.post(`/api/ride/bookings/${selectedBooking._id}/cancel`, {
+        reason: cancelReason
       });
+      
+      // Remove from bookings list
+      setMyBookings(prev => prev.filter(booking => booking._id !== selectedBooking._id));
+      
+      // Refresh available rides since the seats might be available again
+      const updatedRidesResponse = await axios.get('/api/ride/share');
+      setAvailableRides(updatedRidesResponse.data);
+      
+      setOpenCancelDialog(false);
+      setSuccessMessage('Booking cancelled successfully!');
+    } catch (error) {
+      console.error('Error cancelling booking:', error);
+      
+      // Show specific error message if provided by the server
+      if (error.response && error.response.data && error.response.data.error) {
+        setError(error.response.data.error);
+      } else {
+        setError('Failed to cancel booking. Please try again.');
+      }
+    } finally {
+      setLoading(false);
     }
-    
-    // Render the component
-    render() {
-      if (!this.containerRef) return;
+  };
+
+  // Open delete dialog
+  const handleDeleteClick = (ride) => {
+    setRideToDelete(ride);
+    setOpenDeleteDialog(true);
+  };
+  
+  // Open edit dialog
+  const handleEditClick = (ride) => {
+    setRideToEdit(ride);
+    setOpenPostDialog(true);
+    // Populate the form with the ride data, including the _id for updates
+    setNewRide({
+      _id: ride._id, // Include the ID for editing
+      from_location: ride.from_location,
+      to_location: ride.to_location,
+      date: ride.date,
+      time: ride.time,
+      vehicle_type: ride.vehicle_type || 'car',
+      phone_number: ride.phone_number || '',
+      seats_available: ride.seats_available,
+      is_paid: ride.is_paid || false,
+      fee_per_seat: ride.fee_per_seat || 0,
+      payment_method: ride.payment_method || 'in_person',
+      description: ride.description || ''
+    });
+  };
+
+  // Delete a ride
+  const handleDeleteRide = async () => {
+    try {
+      setLoading(true);
+      await axios.delete(`/api/ride/share/${rideToDelete._id}`);
       
-      // Clear container
-      this.containerRef.innerHTML = '';
+      // Remove from rides list
+      setAvailableRides(prev => prev.filter(ride => ride._id !== rideToDelete._id));
       
-      // Create main container
-      const mainContainer = document.createElement('div');
-      mainContainer.className = 'ride-share-container';
-      mainContainer.style.padding = '20px';
-      
-      // Create title
-      const titleElement = document.createElement('h1');
-      titleElement.textContent = 'Ride Share';
-      titleElement.style.marginBottom = '20px';
-      mainContainer.appendChild(titleElement);
-      
-      // Show loading state
-      if (this.state.loading) {
-        const loadingElement = document.createElement('div');
-        loadingElement.textContent = 'Loading rides...';
-        loadingElement.style.padding = '20px';
-        loadingElement.style.textAlign = 'center';
-        mainContainer.appendChild(loadingElement);
-      }
-      
-      // Show error if any
-      else if (this.state.error) {
-        const errorElement = document.createElement('div');
-        errorElement.textContent = this.state.error;
-        errorElement.style.color = 'red';
-        errorElement.style.padding = '20px';
-        errorElement.style.textAlign = 'center';
-        mainContainer.appendChild(errorElement);
-      }
-      
-      // Show empty state if no rides
-      else if (this.state.rides.length === 0) {
-        const emptyElement = document.createElement('div');
-        emptyElement.textContent = 'No rides available. Be the first to post a ride!';
-        emptyElement.style.padding = '20px';
-        emptyElement.style.textAlign = 'center';
-        mainContainer.appendChild(emptyElement);
-      }
-      
-      // Show rides
-      else {
-        const ridesContainer = document.createElement('div');
-        ridesContainer.className = 'rides-container';
-        ridesContainer.style.display = 'grid';
-        ridesContainer.style.gridTemplateColumns = 'repeat(auto-fill, minmax(300px, 1fr))';
-        ridesContainer.style.gap = '20px';
-        
-        this.state.rides.forEach(ride => {
-          const rideCard = document.createElement('div');
-          rideCard.className = 'ride-card';
-          rideCard.style.border = '1px solid #ddd';
-          rideCard.style.borderRadius = '5px';
-          rideCard.style.padding = '15px';
-          rideCard.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
-          
-          // Ride type badge
-          const typeBadge = document.createElement('div');
-          typeBadge.textContent = ride.type === 'offer' ? 'Offering Ride' : 'Requesting Ride';
-          typeBadge.style.display = 'inline-block';
-          typeBadge.style.padding = '5px 10px';
-          typeBadge.style.borderRadius = '15px';
-          typeBadge.style.fontSize = '0.8em';
-          typeBadge.style.marginBottom = '10px';
-          typeBadge.style.backgroundColor = ride.type === 'offer' ? '#e6f7ff' : '#fff7e6';
-          typeBadge.style.color = ride.type === 'offer' ? '#0070f3' : '#fa8c16';
-          rideCard.appendChild(typeBadge);
-          
-          // Ride details
-          const detailsContainer = document.createElement('div');
-          detailsContainer.style.marginBottom = '15px';
-          
-          // Route
-          const routeElement = document.createElement('div');
-          routeElement.style.fontSize = '1.2em';
-          routeElement.style.fontWeight = 'bold';
-          routeElement.style.marginBottom = '5px';
-          routeElement.textContent = `${ride.pickup_location} → ${ride.dropoff_location}`;
-          detailsContainer.appendChild(routeElement);
-          
-          // Date and time
-          const dateTimeElement = document.createElement('div');
-          dateTimeElement.style.marginBottom = '5px';
-          dateTimeElement.textContent = `${new Date(ride.date).toLocaleDateString()} at ${ride.time}`;
-          detailsContainer.appendChild(dateTimeElement);
-          
-          // Seats
-          const seatsElement = document.createElement('div');
-          if (ride.type === 'offer') {
-            seatsElement.textContent = `Available Seats: ${ride.available_seats}`;
-          } else {
-            seatsElement.textContent = `Needed Seats: ${ride.needed_seats}`;
-          }
-          detailsContainer.appendChild(seatsElement);
-          
-          // Status
-          if (ride.status && ride.status !== 'active') {
-            const statusElement = document.createElement('div');
-            statusElement.style.fontWeight = 'bold';
-            statusElement.style.color = ride.status === 'booked' ? '#52c41a' : '#f5222d';
-            statusElement.style.marginTop = '5px';
-            statusElement.textContent = `Status: ${ride.status.charAt(0).toUpperCase() + ride.status.slice(1)}`;
-            detailsContainer.appendChild(statusElement);
-          }
-          
-          rideCard.appendChild(detailsContainer);
-          
-          // User info
-          const userElement = document.createElement('div');
-          userElement.style.display = 'flex';
-          userElement.style.alignItems = 'center';
-          userElement.style.marginBottom = '15px';
-          
-          // User avatar
-          const avatarElement = document.createElement('div');
-          avatarElement.style.width = '30px';
-          avatarElement.style.height = '30px';
-          avatarElement.style.borderRadius = '50%';
-          avatarElement.style.backgroundColor = '#1890ff';
-          avatarElement.style.color = 'white';
-          avatarElement.style.display = 'flex';
-          avatarElement.style.alignItems = 'center';
-          avatarElement.style.justifyContent = 'center';
-          avatarElement.style.marginRight = '10px';
-          avatarElement.textContent = ride.user?.name ? ride.user.name.charAt(0).toUpperCase() : '?';
-          userElement.appendChild(avatarElement);
-          
-          // User name and email
-          const userInfoElement = document.createElement('div');
-          
-          const userNameElement = document.createElement('div');
-          userNameElement.style.fontWeight = 'bold';
-          userNameElement.textContent = ride.user?.name || 'Unknown User';
-          userInfoElement.appendChild(userNameElement);
-          
-          const userEmailElement = document.createElement('div');
-          userEmailElement.style.fontSize = '0.8em';
-          userEmailElement.style.color = '#666';
-          userEmailElement.textContent = ride.user?.email || '';
-          userInfoElement.appendChild(userEmailElement);
-          
-          userElement.appendChild(userInfoElement);
-          rideCard.appendChild(userElement);
-          
-          // Action buttons
-          const actionsElement = document.createElement('div');
-          actionsElement.style.display = 'flex';
-          actionsElement.style.justifyContent = 'flex-end';
-          actionsElement.style.gap = '10px';
-          
-          // Only show buttons if ride is active
-          if (ride.status === 'active' || !ride.status) {
-            // Contact button container
-            const contactButtonContainer = document.createElement('div');
-            contactButtonContainer.id = `contact-button-${ride._id}`;
-            actionsElement.appendChild(contactButtonContainer);
-            
-            // Book Now button (only if current user is not the creator)
-            if (ride.user_id !== this.state.currentUser._id && ride.user_id !== this.state.currentUser.id) {
-              const bookButton = document.createElement('button');
-              bookButton.textContent = 'Book Now';
-              bookButton.style.padding = '8px 16px';
-              bookButton.style.backgroundColor = '#1890ff';
-              bookButton.style.color = 'white';
-              bookButton.style.border = 'none';
-              bookButton.style.borderRadius = '4px';
-              bookButton.style.cursor = 'pointer';
-              bookButton.addEventListener('click', () => this.handleBookNow(ride));
-              actionsElement.appendChild(bookButton);
-            }
-          } else {
-            // Show booked status
-            const bookedElement = document.createElement('div');
-            bookedElement.style.color = '#52c41a';
-            bookedElement.style.fontWeight = 'bold';
-            bookedElement.textContent = 'Booked';
-            actionsElement.appendChild(bookedElement);
-          }
-          
-          rideCard.appendChild(actionsElement);
-          ridesContainer.appendChild(rideCard);
-          
-          // Initialize contact button if user is not the creator
-          if (ride.status === 'active' || !ride.status) {
-            const contactButtonContainer = document.getElementById(`contact-button-${ride._id}`);
-            if (contactButtonContainer) {
-              const contactButton = new ContactButton();
-              contactButton.init({
-                postId: ride._id,
-                postType: 'ride_share',
-                postCreator: {
-                  id: ride.user_id,
-                  name: ride.user?.name || 'Unknown User',
-                  email: ride.user?.email || ''
-                },
-                onContactInitiated: (data) => this.handleContactInitiated(data),
-                container: contactButtonContainer
-              });
+      setOpenDeleteDialog(false);
+      setSuccessMessage('Ride deleted successfully!');
+    } catch (error) {
+      console.error('Error deleting ride:', error);
+      setError('Failed to delete ride. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle contact click
+  const handleContactClick = (ride) => {
+    // Set the selected ride for the contact dialog
+    setSelectedContactRide(ride);
+    // Open the contact dialog which will use the ContactDialog component
+    setContactDialogOpen(true);
+  };
+
+  // Render post ride dialog
+  const renderPostRideDialog = () => (
+    <Dialog open={openPostDialog} onClose={() => setOpenPostDialog(false)} maxWidth="md" fullWidth>
+      <DialogTitle>
+        Post a Ride
+        <IconButton
+          aria-label="close"
+          onClick={() => setOpenPostDialog(false)}
+          sx={{ position: 'absolute', right: 8, top: 8 }}
+        >
+          <CloseIcon />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent>
+        <Box component="form" sx={{ mt: 1 }}>
+          <Grid container spacing={2}>
+            <Grid item xs={12} sm={6}>
+              <FormControl fullWidth>
+                <InputLabel id="from-location-label">From</InputLabel>
+                <Select
+                  labelId="from-location-label"
+                  name="from_location"
+                  value={newRide.from_location}
+                  onChange={handleInputChange}
+                  input={<OutlinedInput label="From" />}
+                  displayEmpty
+                  required
+                  renderValue={(selected) => {
+                    if (!selected) {
+                      return <em>Select pickup location</em>;
+                    }
+                    return selected;
+                  }}
+                  MenuProps={{
+                    PaperProps: {
+                      style: {
+                        maxHeight: 300
+                      },
+                    },
+                  }}
+                >
+                  <MenuItem value="">
+                    <em>Select pickup location</em>
+                  </MenuItem>
+                  {majorLocations.map((location) => (
+                    <MenuItem key={location} value={location}>
+                      {location}
+                    </MenuItem>
+                  ))}
+                  <MenuItem value="other">
+                    <em>Other (Type your own)</em>
+                  </MenuItem>
+                </Select>
+              </FormControl>
+              {newRide.from_location === 'other' && (
+                <TextField
+                  sx={{ mt: 1 }}
+                  name="from_location_custom"
+                  label="Custom Pickup Location"
+                  fullWidth
+                  required
+                  value={newRide.from_location_custom || ''}
+                  onChange={(e) => setNewRide({...newRide, from_location_custom: e.target.value})}
+                  onBlur={(e) => {
+                    if (e.target.value) {
+                      setNewRide({...newRide, from_location: e.target.value, from_location_custom: ''});
+                    }
+                  }}
+                  placeholder="Enter your custom pickup location"
+                />
+              )}
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <FormControl fullWidth>
+                <InputLabel id="to-location-label">To</InputLabel>
+                <Select
+                  labelId="to-location-label"
+                  name="to_location"
+                  value={newRide.to_location}
+                  onChange={handleInputChange}
+                  input={<OutlinedInput label="To" />}
+                  displayEmpty
+                  required
+                  renderValue={(selected) => {
+                    if (!selected) {
+                      return <em>Select destination location</em>;
+                    }
+                    return selected;
+                  }}
+                  MenuProps={{
+                    PaperProps: {
+                      style: {
+                        maxHeight: 300
+                      },
+                    },
+                  }}
+                >
+                  <MenuItem value="">
+                    <em>Select destination location</em>
+                  </MenuItem>
+                  {majorLocations.map((location) => (
+                    <MenuItem key={location} value={location}>
+                      {location}
+                    </MenuItem>
+                  ))}
+                  <MenuItem value="other">
+                    <em>Other (Type your own)</em>
+                  </MenuItem>
+                </Select>
+              </FormControl>
+              {newRide.to_location === 'other' && (
+                <TextField
+                  sx={{ mt: 1 }}
+                  name="to_location_custom"
+                  label="Custom Destination Location"
+                  fullWidth
+                  required
+                  value={newRide.to_location_custom || ''}
+                  onChange={(e) => setNewRide({...newRide, to_location_custom: e.target.value})}
+                  onBlur={(e) => {
+                    if (e.target.value) {
+                      setNewRide({...newRide, to_location: e.target.value, to_location_custom: ''});
+                    }
+                  }}
+                  placeholder="Enter your custom destination location"
+                />
+              )}
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                name="date"
+                label="Date"
+                type="date"
+                fullWidth
+                required
+                InputLabelProps={{ shrink: true }}
+                value={newRide.date}
+                onChange={handleInputChange}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                name="time"
+                label="Time"
+                type="time"
+                fullWidth
+                required
+                InputLabelProps={{ shrink: true }}
+                value={newRide.time}
+                onChange={handleInputChange}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <FormControl fullWidth required>
+                <InputLabel id="vehicle-type-label">Vehicle Type</InputLabel>
+                <Select
+                  labelId="vehicle-type-label"
+                  name="vehicle_type"
+                  value={newRide.vehicle_type}
+                  onChange={handleInputChange}
+                  label="Vehicle Type"
+                >
+                  <MenuItem value="car">Car</MenuItem>
+                  <MenuItem value="bike">Bike</MenuItem>
+                  <MenuItem value="auto">Auto-rickshaw</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                name="phone_number"
+                label="Phone Number"
+                fullWidth
+                required
+                value={newRide.phone_number}
+                onChange={handleInputChange}
+                placeholder="e.g., 01XXXXXXXXX"
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                name="seats_available"
+                label="Available Seats"
+                type="number"
+                fullWidth
+                required
+                inputProps={{ min: 1 }}
+                value={newRide.seats_available}
+                onChange={handleInputChange}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={newRide.is_paid}
+                    onChange={handleInputChange}
+                    name="is_paid"
+                    color="primary"
+                  />
+                }
+                label="Paid Ride"
+              />
+            </Grid>
+            {newRide.is_paid && (
+              <>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    name="fee_per_seat"
+                    label="Fee per Seat (BDT)"
+                    type="number"
+                    fullWidth
+                    required
+                    inputProps={{ min: 0 }}
+                    value={newRide.fee_per_seat}
+                    onChange={handleInputChange}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth required>
+                    <InputLabel id="payment-method-label">Payment Method</InputLabel>
+                    <Select
+                      labelId="payment-method-label"
+                      name="payment_method"
+                      value={newRide.payment_method}
+                      onChange={handleInputChange}
+                      label="Payment Method"
+                    >
+                      <MenuItem value="in_person">In Person</MenuItem>
+                      <MenuItem value="bkash">bKash</MenuItem>
+                      <MenuItem value="nagad">Nagad</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+              </>
+            )}
+            <Grid item xs={12}>
+              <TextField
+                name="description"
+                label="Description"
+                multiline
+                rows={4}
+                fullWidth
+                value={newRide.description}
+                onChange={handleInputChange}
+                placeholder="Add any additional details about your ride here..."
+              />
+            </Grid>
+          </Grid>
+        </Box>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => setOpenPostDialog(false)}>Cancel</Button>
+        <Button 
+          onClick={handlePostRide} 
+          variant="contained" 
+          disabled={!newRide.from_location || !newRide.to_location || !newRide.date || !newRide.time}
+        >
+          Post
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+
+  // Render book dialog
+  const renderBookDialog = () => (
+    <Dialog open={openBookDialog} onClose={() => setOpenBookDialog(false)} maxWidth="sm" fullWidth>
+      <DialogTitle sx={{ pb: 1 }}>
+        Book a Ride
+        <IconButton
+          aria-label="close"
+          onClick={() => setOpenBookDialog(false)}
+          sx={{ position: 'absolute', right: 8, top: 8 }}
+        >
+          <CloseIcon />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent>
+        {selectedRide && (
+          <>
+            {/* Ride summary card */}
+            <Paper elevation={2} sx={{ p: 2, mb: 3, mt: 1, borderRadius: 2 }}>
+              {/* Header with route */}
+              <Box sx={{ 
+                p: 2, 
+                mb: 2, 
+                background: 'linear-gradient(120deg, #2196f3 0%, #1976d2 100%)',
+                color: 'white',
+                borderRadius: 1
+              }}>
+                <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+                  {selectedRide.from_location} → {selectedRide.to_location}
+                </Typography>
+                <Typography variant="body2">
+                  {formatDate(selectedRide.date)} at {formatTime(selectedRide.time)}
+                </Typography>
+              </Box>
               
-              // Store reference to contact button
-              this.contactButtonRefs[ride._id] = contactButton;
+              {/* Ride details */}
+              <Grid container spacing={2}>
+                <Grid item xs={6}>
+                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                    <Avatar sx={{ bgcolor: '#1976d2', mr: 1, width: 32, height: 32 }}>
+                      {selectedRide.user_name?.charAt(0) || 'U'}
+                    </Avatar>
+                    <Box>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
+                        {selectedRide.user_name}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {selectedRide.user_email}
+                      </Typography>
+                    </Box>
+                  </Box>
+                </Grid>
+                <Grid item xs={6}>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                    <Chip 
+                      label={selectedRide.vehicle_type || 'Car'} 
+                      size="small" 
+                      color="primary" 
+                      variant="outlined"
+                      icon={selectedRide.vehicle_type === 'bike' ? <TwoWheelerIcon /> : <CarIcon />}
+                    />
+                    <Typography variant="body2" sx={{ mt: 1 }}>
+                      <strong>Available:</strong> {selectedRide.seats_available} seats
+                    </Typography>
+                  </Box>
+                </Grid>
+              </Grid>
+              
+              {/* Payment details if paid ride */}
+              {selectedRide.is_paid && (
+                <Box sx={{ mt: 2, p: 1, bgcolor: '#f5f5f5', borderRadius: 1 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: '#1976d2' }}>
+                    Payment Details
+                  </Typography>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1 }}>
+                    <Typography variant="body2">
+                      Fee per seat:
+                    </Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                      {selectedRide.fee_per_seat} BDT
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography variant="body2">
+                      Payment method:
+                    </Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                      {selectedRide.payment_method === 'in_person' ? 'In Person' : selectedRide.payment_method}
+                    </Typography>
+                  </Box>
+                </Box>
+              )}
+            </Paper>
+            
+            {/* Booking form */}
+            <Typography variant="h6" gutterBottom>
+              Booking Details
+            </Typography>
+            <TextField
+              label="Number of Seats"
+              type="number"
+              fullWidth
+              margin="normal"
+              inputProps={{ min: 1, max: selectedRide.seats_available }}
+              value={bookingSeats}
+              onChange={(e) => setBookingSeats(parseInt(e.target.value) || 1)}
+              helperText={`You can book up to ${selectedRide.seats_available} seats`}
+            />
+            
+            {/* Total cost calculation */}
+            {selectedRide.is_paid && (
+              <Paper elevation={1} sx={{ p: 2, mt: 2, bgcolor: '#e3f2fd', borderRadius: 1 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Typography variant="subtitle1">
+                    Total Cost:
+                  </Typography>
+                  <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#1976d2' }}>
+                    {(bookingSeats * selectedRide.fee_per_seat).toFixed(0)} BDT
+                  </Typography>
+                </Box>
+              </Paper>
+            )}
+          </>
+        )}
+      </DialogContent>
+      <DialogActions sx={{ p: 2, pt: 0 }}>
+        <Button onClick={() => setOpenBookDialog(false)} variant="outlined">
+          Cancel
+        </Button>
+        <Button 
+          onClick={handleBookRide} 
+          variant="contained"
+          disabled={!selectedRide || bookingSeats < 1 || bookingSeats > selectedRide.seats_available}
+          startIcon={<CheckCircleIcon />}
+        >
+          Confirm Booking
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+
+  // Render cancel dialog
+  const renderCancelDialog = () => (
+    <Dialog open={openCancelDialog} onClose={() => setOpenCancelDialog(false)} maxWidth="xs" fullWidth>
+      <DialogTitle>
+        Cancel Booking
+        <IconButton
+          aria-label="close"
+          onClick={() => setOpenCancelDialog(false)}
+          sx={{ position: 'absolute', right: 8, top: 8 }}
+        >
+          <CloseIcon />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent>
+        {selectedBooking && (
+          <Box sx={{ mt: 1 }}>
+            <Typography variant="h6" gutterBottom>
+              {selectedBooking.ride.from_location} → {selectedBooking.ride.to_location}
+            </Typography>
+            <Typography color="textSecondary" gutterBottom>
+              {formatDate(selectedBooking.ride.date)} at {selectedBooking.ride.time}
+            </Typography>
+            <FormControl fullWidth margin="normal">
+              <InputLabel>Reason for Cancellation</InputLabel>
+              <Select
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                label="Reason for Cancellation"
+                required
+              >
+                <MenuItem value="change_of_plans">Change of Plans</MenuItem>
+                <MenuItem value="found_alternative">Found Alternative Transport</MenuItem>
+                <MenuItem value="schedule_conflict">Schedule Conflict</MenuItem>
+                <MenuItem value="emergency">Emergency</MenuItem>
+                <MenuItem value="other">Other</MenuItem>
+              </Select>
+            </FormControl>
+          </Box>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => setOpenCancelDialog(false)}>Back</Button>
+        <Button 
+          onClick={handleCancelBooking} 
+          color="error"
+          disabled={!cancelReason}
+        >
+          Cancel Booking
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+
+  // Render delete dialog
+  const renderDeleteDialog = () => (
+    <Dialog open={openDeleteDialog} onClose={() => setOpenDeleteDialog(false)} maxWidth="xs">
+      <DialogTitle>Delete Ride</DialogTitle>
+      <DialogContent>
+        <Typography>Are you sure you want to delete this ride? This action cannot be undone.</Typography>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => setOpenDeleteDialog(false)}>Cancel</Button>
+        <Button onClick={handleDeleteRide} color="error">
+          Delete
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+
+  return (
+    <Container maxWidth="lg" sx={{ py: 4, backgroundColor: '#f5f5f5', minHeight: '100vh' }}>
+      {/* Header with gradient background */}
+      <Box
+        sx={{
+          background: 'linear-gradient(120deg, #2196f3 0%, #1976d2 100%)',
+          color: 'white',
+          py: 4,
+          mb: 4,
+          borderRadius: 2,
+          boxShadow: 3
+        }}
+      >
+        <Typography variant="h4" component="h1" gutterBottom sx={{ fontWeight: 600, textAlign: 'center' }}>
+          Ride Sharing
+        </Typography>
+        <Typography variant="subtitle1" sx={{ textAlign: 'center', opacity: 0.9 }}>
+          Find and share rides with your community
+        </Typography>
+      </Box>
+
+      {/* Tabs */}
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+        <Tabs
+          value={tabValue}
+          onChange={handleTabChange}
+          sx={{
+            '& .MuiTabs-indicator': {
+              backgroundColor: '#1976d2'
+            },
+            '& .MuiTab-root': {
+              color: '#666',
+              '&.Mui-selected': {
+                color: '#1976d2'
+              }
             }
-          }
-        });
-        
-        mainContainer.appendChild(ridesContainer);
-      }
+          }}
+        >
+          <Tab label="Available Rides" icon={<CarIcon />} iconPosition="start" />
+          <Tab label="My Bookings" icon={<CheckCircleIcon />} iconPosition="start" />
+        </Tabs>
+      </Box>
+
+      {/* Snackbar for notifications */}
+      <Snackbar
+        open={Boolean(successMessage)}
+        autoHideDuration={6000}
+        onClose={() => setSuccessMessage(null)}
+      >
+        <Alert severity="success" onClose={() => setSuccessMessage(null)}>
+          {successMessage}
+        </Alert>
+      </Snackbar>
+
+      {/* Main content area */}
+      <Box sx={{ width: '100%' }}>
+        {/* Available Rides Tab */}
+        <TabPanel value={tabValue} index={0}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {/* Action buttons */}
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+              <Button
+                variant="contained"
+                onClick={() => setOpenPostDialog(true)}
+                startIcon={<AddIcon />}
+                sx={{
+                  backgroundColor: '#1976d2',
+                  '&:hover': {
+                    backgroundColor: '#1565c0'
+                  }
+                }}
+              >
+                Post a Ride
+              </Button>
+            </Box>
+            
+            {/* Rides grid */}
+            {loading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+                <CircularProgress />
+              </Box>
+            ) : error ? (
+              <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>
+            ) : availableRides.length === 0 ? (
+              <Alert severity="info">No rides available</Alert>
+            ) : (
+              <Grid container spacing={3}>
+                {availableRides.map(ride => (
+                  <Grid item xs={12} sm={6} md={4} key={ride._id}>
+                    <Card
+                      sx={{
+                        height: '100%',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        transition: 'transform 0.2s',
+                        overflow: 'visible',
+                        position: 'relative',
+                        '&:hover': {
+                          transform: 'translateY(-5px)',
+                          boxShadow: 4
+                        }
+                      }}
+                    >
+                      {/* Vehicle type badge */}
+                      <Box
+                        sx={{
+                          position: 'absolute',
+                          top: -15,
+                          right: 20,
+                          backgroundColor: '#1976d2',
+                          color: 'white',
+                          borderRadius: '50%',
+                          width: 40,
+                          height: 40,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          boxShadow: 2,
+                          zIndex: 1
+                        }}
+                      >
+                        {ride.vehicle_type === 'car' ? (
+                          <CarIcon />
+                        ) : ride.vehicle_type === 'bike' ? (
+                          <TwoWheelerIcon />
+                        ) : (
+                          <CarIcon />
+                        )}
+                      </Box>
+                      
+                      {/* Card header with route */}
+                      <Box
+                        sx={{
+                          p: 2,
+                          background: 'linear-gradient(120deg, #2196f3 0%, #1976d2 100%)',
+                          color: 'white',
+                          borderTopLeftRadius: 4,
+                          borderTopRightRadius: 4
+                        }}
+                      >
+                        <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold' }}>
+                          {ride.from_location} → {ride.to_location}
+                        </Typography>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Typography variant="body2">
+                            {formatDate(ride.date)} at {formatTime(ride.time)}
+                          </Typography>
+                          <Chip 
+                            label={ride.seats_available > 0 ? `${ride.seats_available} seats` : 'Full'} 
+                            color={ride.seats_available > 0 ? 'success' : 'error'}
+                            size="small"
+                            variant="outlined"
+                            sx={{ color: 'white', borderColor: 'white' }}
+                          />
+                        </Box>
+                      </Box>
+                      
+                      <CardContent sx={{ flexGrow: 1, pt: 2 }}>
+                        {/* User info */}
+                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                          <Avatar sx={{ bgcolor: '#1976d2', mr: 1, width: 32, height: 32 }}>
+                            {ride.user_name?.charAt(0) || 'U'}
+                          </Avatar>
+                          <Box>
+                            <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
+                              {ride.user_name}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {ride.user_email}
+                            </Typography>
+                          </Box>
+                        </Box>
+                        
+                        {/* Ride details */}
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+                          {ride.is_paid && (
+                            <Chip 
+                              icon={<AttachMoneyIcon />} 
+                              label={`${ride.fee_per_seat} BDT/seat`} 
+                              size="small" 
+                              color="primary" 
+                              variant="outlined"
+                            />
+                          )}
+                          {!ride.is_paid ? (
+                            <Chip 
+                              label="Free" 
+                              size="small" 
+                              color="success" 
+                              variant="outlined"
+                            />
+                          ) : ride.payment_method && (
+                            <Chip 
+                              label={ride.payment_method === 'in_person' ? 'Pay in person' : ride.payment_method} 
+                              size="small" 
+                              color="default" 
+                              variant="outlined"
+                            />
+                          )}
+                          {/* Phone number is hidden until booking is confirmed */}
+                        </Box>
+                        
+                        {/* Description */}
+                        {ride.description && (
+                          <Typography
+                            variant="body2"
+                            color="textSecondary"
+                            sx={{ 
+                              mt: 1, 
+                              p: 1, 
+                              backgroundColor: '#f5f5f5', 
+                              borderRadius: 1,
+                              fontSize: '0.875rem'
+                            }}
+                          >
+                            {ride.description}
+                          </Typography>
+                        )}
+                      </CardContent>
+                      
+                      {/* Action buttons */}
+                      <CardActions sx={{ p: 2, pt: 0, justifyContent: 'space-between' }}>
+                        {/* Compare user IDs safely */}
+                        {(ride.user_id && currentUserId) ? 
+                          (String(ride.user_id) !== String(currentUserId) ? (
+                          <>
+                            <Button
+                              size="small"
+                              variant="contained"
+                              onClick={() => handleBookClick(ride)}
+                              disabled={ride.seats_available < 1}
+                              startIcon={<CheckCircleIcon />}
+                              sx={{ flex: 1, mr: 1 }}
+                            >
+                              Book Now
+                            </Button>
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              onClick={() => handleContactClick(ride)}
+                              startIcon={<PhoneIcon />}
+                              sx={{ flex: 1 }}
+                            >
+                              Contact
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button
+                              size="small"
+                              color="primary"
+                              variant="outlined"
+                              onClick={() => handleEditClick(ride)}
+                              startIcon={<EditIcon />}
+                              sx={{ flex: 1, mr: 1 }}
+                            >
+                              Edit
+                            </Button>
+                            <Button
+                              size="small"
+                              color="error"
+                              variant="outlined"
+                              onClick={() => handleDeleteClick(ride)}
+                              startIcon={<DeleteIcon />}
+                              sx={{ flex: 1 }}
+                            >
+                              Delete
+                            </Button>
+                          </>
+                        )) : (
+                          // Fallback when user IDs are not available
+                          <Button
+                            size="small"
+                            variant="contained"
+                            onClick={() => handleBookClick(ride)}
+                            disabled={ride.seats_available < 1}
+                            startIcon={<CheckCircleIcon />}
+                            sx={{ flex: 1 }}
+                          >
+                            Book Now
+                          </Button>
+                        )}
+                      </CardActions>
+                    </Card>
+                  </Grid>
+                ))}
+              </Grid>
+            )}
+          </Box>
+        </TabPanel>
+
+        {/* My Bookings Tab */}
+        <TabPanel value={tabValue} index={1}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {loading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+                <CircularProgress />
+              </Box>
+            ) : error ? (
+              <Alert severity="error">{error}</Alert>
+            ) : myBookings.length === 0 ? (
+              <Alert severity="info">You have no active bookings</Alert>
+            ) : (
+              <Grid container spacing={3}>
+                {myBookings.map(booking => (
+                  <Grid item xs={12} sm={6} md={4} key={booking._id}>
+                    <Card sx={{ height: '100%' }}>
+                      <CardContent>
+                        <Typography variant="h6" gutterBottom>
+                          {booking.ride.from_location} → {booking.ride.to_location}
+                        </Typography>
+                        <Typography color="textSecondary" gutterBottom>
+                          {formatDate(booking.ride.date)} at {booking.ride.time}
+                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                          <Avatar sx={{ bgcolor: '#1976d2', mr: 1, width: 32, height: 32 }}>
+                            {booking.ride.user_name?.charAt(0) || 'U'}
+                          </Avatar>
+                          <Box>
+                            <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
+                              {booking.ride.user_name}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {booking.ride.user_email}
+                            </Typography>
+                          </Box>
+                        </Box>
+                        
+                        <Divider sx={{ my: 1 }} />
+                        
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+                          <Chip 
+                            icon={<EventSeatIcon fontSize="small" />}
+                            label={`${booking.seats} seats booked`} 
+                            size="small" 
+                            color="primary" 
+                            variant="outlined"
+                          />
+                          {booking.ride.vehicle_type && (
+                            <Chip 
+                              icon={booking.ride.vehicle_type === 'bike' ? <TwoWheelerIcon /> : <CarIcon />}
+                              label={booking.ride.vehicle_type} 
+                              size="small" 
+                              color="default" 
+                              variant="outlined"
+                            />
+                          )}
+                          {booking.ride.is_paid && (
+                            <Chip 
+                              icon={<AttachMoneyIcon />} 
+                              label={`${(booking.seats * booking.ride.fee_per_seat).toFixed(0)} BDT total`} 
+                              size="small" 
+                              color="success" 
+                              variant="outlined"
+                            />
+                          )}
+                        </Box>
+                        
+                        {/* Show phone number for booked rides */}
+                        {booking.ride.phone_number && (
+                          <Box sx={{ display: 'flex', alignItems: 'center', bgcolor: '#f5f5f5', p: 1.5, borderRadius: 1, mb: 1 }}>
+                            <PhoneIcon fontSize="small" sx={{ mr: 1, color: '#1976d2' }} />
+                            <Typography variant="body2">
+                              <strong>Contact:</strong> {booking.ride.phone_number}
+                            </Typography>
+                          </Box>
+                        )}
+                      </CardContent>
+                      <CardActions sx={{ p: 2, pt: 0, justifyContent: 'space-between' }}>
+                        <Button
+                          size="small"
+                          color="error"
+                          variant="outlined"
+                          onClick={() => handleCancelClick(booking)}
+                          startIcon={<CancelIcon />}
+                          sx={{ flex: 1, mr: 1 }}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="contained"
+                          onClick={() => handleContactClick(booking.ride)}
+                          startIcon={<ChatIcon />}
+                          sx={{ flex: 1 }}
+                        >
+                          Chat
+                        </Button>
+                      </CardActions>
+                    </Card>
+                  </Grid>
+                ))}
+              </Grid>
+            )}
+          </Box>
+        </TabPanel>
+      </Box>
+
+      {/* Dialogs */}
+      {renderPostRideDialog()}
+      {renderBookDialog()}
+      {renderCancelDialog()}
+      {renderDeleteDialog()}
       
-      this.containerRef.appendChild(mainContainer);
-    }
-  }
-  
-  // Create ref for the container
-  const containerRef = React.useRef(null);
-  
-  // Initialize the component after render
-  React.useEffect(() => {
-    if (containerRef.current) {
-      const rideShareComponent = new RideShareComponent();
-      rideShareComponent.init(containerRef.current);
-      
-      // Cleanup on unmount
-      return () => {
-        // Clean up any resources if needed
-      };
-    }
-  }, []);
-  
-  // Return a container div for the component to render into
-  return React.createElement('div', { ref: containerRef });
+      {/* Simple Message Dialog for one-time messaging */}
+      <SimpleMessageDialog
+        open={contactDialogOpen}
+        onClose={() => setContactDialogOpen(false)}
+        item={selectedContactRide}
+        itemType="ride"
+      />
+    </Container>
+  );
 };
 
 export default withNotificationBanner(RideShare, 'ride_share');

@@ -19,11 +19,6 @@ def get_active_notifications(page):
 def deactivate_notification(notification_id):
     return notification_controller.deactivate_notification(notification_id)
 
-@notification_bp.route('/<notification_id>', methods=['PUT'])
-@jwt_required()
-def update_notification(notification_id):
-    return notification_controller.update_notification(notification_id)
-
 @notification_bp.route('', methods=['GET'])
 @jwt_required(optional=True)  # Allow both authenticated and unauthenticated access
 def get_all_notifications():

@@ -97,12 +97,23 @@ const Login = () => {
         password
       });
       
-      // Store token in localStorage
+      // Check if the user is an admin
+      if (response.data.user && response.data.user.role === 'admin') {
+        // If user is an admin, redirect to admin login page
+        setError('Administrators must use the admin login page');
+        setTimeout(() => {
+          navigate('/admin-login');
+        }, 2000); // Redirect after showing the message for 2 seconds
+        return;
+      }
+      
+      // Store token in localStorage for regular users
       localStorage.setItem('token', response.data.access_token);
       localStorage.setItem('user', JSON.stringify(response.data.user));
       
       // Redirect to profile page instead of home page
-      navigate('/profile');
+      // Use replace instead of push to handle back button correctly
+      navigate('/profile', { replace: false });
     } catch (err) {
       console.error('Login error:', err);
       if (err.response?.data?.error === 'Your account is pending approval. Please check back later.') {

@@ -50,7 +50,7 @@ function NotificationBanner({ page }) {
         animation: 'marquee 20s linear infinite',
       }
     },
-      React.createElement('span', { className: 'text-md font-medium', style: { fontSize: '1.1rem', fontWeight: 'bold' } },
+      React.createElement('span', { className: 'text-sm font-medium' },
         `📢 ${currentNotification.message}`
       )
     ),
@@ -61,7 +61,7 @@ function NotificationBanner({ page }) {
         animation: 'marquee2 20s linear infinite',
       }
     },
-      React.createElement('span', { className: 'text-md font-medium', style: { fontSize: '1.1rem', fontWeight: 'bold' } },
+      React.createElement('span', { className: 'text-sm font-medium' },
         `📢 ${currentNotification.message}`
       )
     ),

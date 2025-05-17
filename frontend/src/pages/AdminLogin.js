@@ -26,8 +26,13 @@ const AdminLogin = () => {
 
   // Clear any existing tokens when this page loads
   useEffect(() => {
+    // Clear any existing admin tokens when this page loads
     localStorage.removeItem('adminToken');
     localStorage.removeItem('adminInfo');
+    
+    // Also clear any regular user tokens to prevent confusion
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
   }, []);
 
   useEffect(() => {
@@ -67,10 +72,16 @@ const AdminLogin = () => {
     try {
       console.log('Attempting admin login with:', { email, password });
       
+      // Make the admin login request
       const response = await axios.post('/api/auth/admin/login', {
         email,
         password
       });
+      
+      // Verify that the response contains admin data
+      if (!response.data.admin || response.data.admin.role !== 'admin') {
+        throw new Error('This login is only for administrators');
+      }
 
       console.log('Admin login successful, response:', response.data);
       

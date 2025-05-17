@@ -1,0 +1,96 @@
+.ride-card {
+    transition: transform 0.2s ease-in-out;
+}
+
+.ride-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+.ride-card__actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.ride-card__creator-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.ride-card__user-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.ride-card__contact-info {
+    margin-top: 8px;
+    padding: 8px;
+    background-color: #f5f5f5;
+    border-radius: 4px;
+}
+
+.ride-filter {
+    margin-bottom: 24px;
+    background-color: #f8f9fa;
+}
+
+.ride-form {
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.ride-form__payment-section {
+    padding: 16px;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    margin-top: 16px;
+}
+
+.admin-rides {
+    padding: 24px;
+}
+
+.admin-rides__header {
+    margin-bottom: 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.admin-rides__stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.admin-rides__stat-card {
+    padding: 16px;
+    border-radius: 8px;
+    background-color: #fff;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.ride-status {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.ride-status--active {
+    background-color: #e3f2fd;
+    color: #1976d2;
+}
+
+.ride-status--cancelled {
+    background-color: #ffebee;
+    color: #d32f2f;
+}
+
+.ride-status--completed {
+    background-color: #e8f5e9;
+    color: #2e7d32;
+}

@@ -1,5 +1,4 @@
-import React, { memo, useEffect } from 'react';
-import withNotificationBanner from '../components/withNotificationBanner';
+import React, { memo, useEffect, useState } from 'react';
 import { 
   Box, 
   Typography, 
@@ -10,13 +9,16 @@ import {
   Button 
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
-import DirectionsBusIcon from '@mui/icons-material/DirectionsBus';
+import DirectionsCarIcon from '@mui/icons-material/DirectionsCar';
+import TwoWheelerIcon from '@mui/icons-material/TwoWheeler';
 import StoreIcon from '@mui/icons-material/Store';
 import PersonIcon from '@mui/icons-material/Person';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import HowToRegIcon from '@mui/icons-material/HowToReg';
 import FacebookIcon from '@mui/icons-material/Facebook';
 import InstagramIcon from '@mui/icons-material/Instagram';
+import ScrollingAnnouncement from '../components/ScrollingAnnouncement';
+import notificationService from '../services/notificationService';
 
 // Memoized service card component for better performance
 const ServiceCard = memo(({ service, isLoggedIn, onServiceClick }) => (
@@ -66,6 +68,8 @@ const ServiceCard = memo(({ service, isLoggedIn, onServiceClick }) => (
 const Home = () => {
   const navigate = useNavigate();
   const isLoggedIn = localStorage.getItem('token');
+  const [announcements, setAnnouncements] = useState([]);
+  const [loading, setLoading] = useState(false);
 
   // Add animation classes when component mounts
   useEffect(() => {
@@ -75,6 +79,31 @@ const Home = () => {
         element.classList.add('slide-up');
       }, index * 100);
     });
+  }, []);
+
+  // Fetch announcements for the home page
+  useEffect(() => {
+    const fetchAnnouncements = async () => {
+      try {
+        setLoading(true);
+        const data = await notificationService.getPageAnnouncements('home');
+        if (Array.isArray(data)) {
+          setAnnouncements(data);
+        }
+      } catch (error) {
+        console.error('Error fetching announcements:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchAnnouncements();
+    
+    // Set up a polling interval to refresh announcements periodically
+    const intervalId = setInterval(fetchAnnouncements, 30000); // Refresh every 30 seconds
+    
+    // Clean up interval on component unmount
+    return () => clearInterval(intervalId);
   }, []);
 
   const handleServiceClick = (path) => {
@@ -93,7 +122,7 @@ const Home = () => {
     {
       title: 'Lost & Found',
       description: 'Report or find lost items around the campus.',
-      icon: <DirectionsBusIcon sx={{ fontSize: 70, color: '#2e7d32' }} />,
+      icon: <TwoWheelerIcon sx={{ fontSize: 70, color: '#2e7d32' }} />,
       path: '/lost-found',
       color: '#c8e6c9'
     },
@@ -107,7 +136,7 @@ const Home = () => {
     {
       title: 'Ride Sharing',
       description: 'Find or offer rides to and from campus with fellow students.',
-      icon: <DirectionsBusIcon sx={{ fontSize: 70, color: '#1565c0' }} />,
+      icon: <DirectionsCarIcon sx={{ fontSize: 70, color: '#1565c0' }} />,
       path: '/ride-booking',
       color: '#bbdefb'
     }
@@ -119,6 +148,15 @@ const Home = () => {
       minHeight: '100vh',
       background: 'linear-gradient(to bottom, #e1f5fe, #ffffff)'
     }}>
+      {/* Display announcements at the top of the page */}
+      {announcements && announcements.length > 0 && (
+        <Container maxWidth="lg" sx={{ pt: 2 }}>
+          <ScrollingAnnouncement 
+            announcements={announcements} 
+            page="home" 
+          />
+        </Container>
+      )}
       {/* Banner Section */}
       <Box sx={{ 
         py: { xs: 5, md: 8 }, 
@@ -295,4 +333,4 @@ const Home = () => {
   );
 };
 
-export default withNotificationBanner(memo(Home), 'home');
+export default memo(Home);

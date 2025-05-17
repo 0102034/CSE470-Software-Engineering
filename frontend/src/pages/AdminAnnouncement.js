@@ -114,18 +114,35 @@ const AdminAnnouncement = () => {
     }
 
     try {
+      setLoading(true);
       const token = localStorage.getItem('token');
+      const updatedData = {
+        message,
+        pages: selectedPages
+      };
+      
       await axios.put(
         `http://localhost:5000/api/announcements/${editingAnnouncement._id}`,
-        {
-          message,
-          pages: selectedPages
-        },
+        updatedData,
         {
           headers: {
             Authorization: `Bearer ${token}`
           }
         }
+      );
+
+      // Immediately update the UI with the edited announcement
+      setAnnouncements(prevAnnouncements => 
+        prevAnnouncements.map(announcement => 
+          announcement._id === editingAnnouncement._id ? 
+          { 
+            ...announcement, 
+            message: updatedData.message, 
+            pages: updatedData.pages,
+            updated_at: new Date().toISOString()
+          } : 
+          announcement
+        )
       );
 
       // Reset form and close dialog
@@ -134,13 +151,17 @@ const AdminAnnouncement = () => {
       setEditingAnnouncement(null);
       setOpenDialog(false);
       
-      // Refresh announcements
-      fetchAnnouncements();
+      // Also refresh from server to ensure data consistency (but after UI update)
+      setTimeout(() => {
+        fetchAnnouncements();
+      }, 500);
       
       showNotification('Announcement updated successfully', 'success');
     } catch (error) {
       console.error('Error updating announcement:', error);
       showNotification('Failed to update announcement', 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -150,6 +171,14 @@ const AdminAnnouncement = () => {
     }
 
     try {
+      setLoading(true);
+      
+      // First update the UI immediately for better user experience
+      setAnnouncements(prevAnnouncements => 
+        prevAnnouncements.filter(announcement => announcement._id !== id)
+      );
+      
+      // Then make the API call
       const token = localStorage.getItem('token');
       await axios.delete(`http://localhost:5000/api/announcements/${id}`, {
         headers: {
@@ -157,13 +186,28 @@ const AdminAnnouncement = () => {
         }
       });
       
-      // Refresh announcements
-      fetchAnnouncements();
+      // Delay the server refresh to ensure the deletion has been processed
+      setTimeout(() => {
+        fetchAnnouncements();
+      }, 500);
       
       showNotification('Announcement deleted successfully', 'success');
+      
+      // If we're editing the announcement that was just deleted, reset the form
+      if (editingAnnouncement && editingAnnouncement._id === id) {
+        setMessage('');
+        setSelectedPages([]);
+        setEditingAnnouncement(null);
+        setOpenDialog(false);
+      }
     } catch (error) {
       console.error('Error deleting announcement:', error);
       showNotification('Failed to delete announcement', 'error');
+      
+      // If the deletion failed, refresh from server to restore the announcement
+      fetchAnnouncements();
+    } finally {
+      setLoading(false);
     }
   };
 
